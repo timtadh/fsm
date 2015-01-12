@@ -1,0 +1,3 @@
+[submodule "src/github.com/timtadh/goiso"]
+	path = src/github.com/timtadh/goiso
+	url = git@github.com:timtadh/goiso
