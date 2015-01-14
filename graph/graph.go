@@ -24,7 +24,6 @@ package graph
 */
 
 import (
-	"os"
 	"io"
 	"fmt"
 	"bytes"
@@ -33,7 +32,9 @@ import (
 )
 
 import (
-	"github.com/timtadh/data-structures/trie"
+	"github.com/timtadh/data-structures/hashtable"
+	"github.com/timtadh/data-structures/types"
+	"github.com/timtadh/goiso"
 )
 
 type jsonObject map[string]interface{}
@@ -51,32 +52,6 @@ func (self error_list) Error() string {
 }
 func (self ParseErrors) Error() string { return error_list(self).Error() }
 func (self SerializeErrors) Error() string { return error_list(self).Error() }
-
-type Vertex struct {
-	Id int64 "id"
-	Label string "label"
-	Rest jsonObject
-}
-
-type Arc struct {
-	Src int64
-	Targ int64
-}
-
-type Edge struct {
-	Arc
-	Label string "label"
-	Rest jsonObject
-}
-
-type Graph struct {
-	Index *trie.TST
-	V map[int64]*Vertex "vertices"
-	E map[Arc][]*Edge "edges"
-	closure map[Arc]bool
-	kids map[int64][]int64
-	parents map[int64][]int64
-}
 
 func ProcessLines(reader io.Reader, process func([]byte)) {
 
@@ -145,37 +120,24 @@ func parseLine(line []byte) (line_type string, data []byte) {
 	return strings.TrimSpace(string(split[0])), bytes.TrimSpace(split[1])
 }
 
-func newGraph() *Graph {
-	return &Graph{
-		Index: new(trie.TST),
-		V: make(map[int64]*Vertex),
-		E: make(map[Arc][]*Edge),
-		kids: make(map[int64][]int64),
-		parents: make(map[int64][]int64),
-	}
-}
-
-func LoadGraph(reader io.Reader) (graph *Graph, err error) {
+func LoadGraph(reader io.Reader) (graph *goiso.Graph, err error) {
 	var errors ParseErrors
-	graph = newGraph()
+	G := goiso.NewGraph(100, 100)
+	graph = &G
+	vids := hashtable.NewLinearHash() // int64 ==> *goiso.Vertex
 
 	ProcessLines(reader, func(line []byte) {
 		if len(line) == 0 || !bytes.Contains(line, []byte("\t")) {
 			return
 		}
 		line_type, data := parseLine(line)
-
 		switch line_type {
 		case "vertex":
-			if v, err := LoadVertex(data); err == nil {
-				graph.addVertex(v)
-			} else {
+			if err := LoadVertex(graph, vids, data); err != nil {
 				errors = append(errors, err)
 			}
 		case "edge":
-			if e, err := LoadEdge(data); err == nil {
-				graph.addEdge(e)
-			} else {
+			if err := LoadEdge(graph, vids, data); err != nil {
 				errors = append(errors, err)
 			}
 		default:
@@ -189,178 +151,67 @@ func LoadGraph(reader io.Reader) (graph *Graph, err error) {
 	return graph, errors
 }
 
-func (self *Graph) addVertex(v *Vertex) {
-	self.V[v.Id] = v
-	if v.Label == "" {
-		return
-	}
-	var vertices []*Vertex
-	if self.Index.Has([]byte(v.Label)) {
-		obj, err := self.Index.Get([]byte(v.Label))
-		if err != nil {
-			panic(err)
-		}
-		vertices = obj.([]*Vertex)
-	}
-	vertices = append(vertices, v)
-	if vertices == nil {
-		panic("verticies == nil")
-	}
-	err := self.Index.Put([]byte(v.Label), vertices)
+func LoadVertex(g *goiso.Graph, vids types.Map, data []byte) (err error) {
+	obj, err := parseJson(data)
 	if err != nil {
-		file, _ := os.Create("panic.dot")
-		fmt.Fprintln(file, self.Index.Dotty())
-		file.Close()
-		fmt.Println(v.Label)
-		panic(err)
+		return err
 	}
-}
-
-func (self *Graph) addEdge(e *Edge) {
-	self.E[e.Arc] = append(self.E[e.Arc], e)
-	self.kids[e.Src] = append(self.kids[e.Src], e.Targ)
-	self.parents[e.Targ] = append(self.parents[e.Targ], e.Src)
-}
-
-func (self *Graph) Vertices() []int64 {
-	vertices := make([]int64, 0, len(self.V)+1)
-	for _, v := range self.V {
-		vertices = append(vertices, v.Id)
+	_id, err := obj["id"].(json.Number).Int64()
+	if err != nil {
+		return err
 	}
-	return vertices
-}
-
-func (self *Graph) Has(v *Vertex) bool {
-	_, has := self.V[v.Id]
-	return has
-}
-
-func (self *Graph) Kids(v *Vertex) []*Vertex {
-	ids := self.kids[v.Id]
-	kids := make([]*Vertex, 0, len(ids))
-	for _, id := range ids {
-		kids = append(kids, self.V[id])
+	label := strings.TrimSpace(obj["label"].(string))
+	id := int(_id)
+	vertex := g.AddVertex(id, label)
+	err = vids.Put(types.Int(id), vertex)
+	if err != nil {
+		return err
 	}
-	return kids
+	return nil
 }
 
-func (self *Graph) Parents(v *Vertex) []*Vertex {
-	ids := self.parents[v.Id]
-	parents := make([]*Vertex, 0, len(ids))
-	for _, id := range ids {
-		parents = append(parents, self.V[id])
+func SerializeVertex(g *goiso.Graph, v *goiso.Vertex) ([]byte, error) {
+	obj := make(jsonObject)
+	obj["id"] = v.Id
+	obj["label"] = g.Colors[v.Color]
+	return renderJson(obj)
+}
+
+func LoadEdge(g *goiso.Graph, vids types.Map, data []byte) (err error) {
+	obj, err := parseJson(data)
+	if err != nil {
+		return err
 	}
-	return parents
-}
-
-func (self *Graph) Serialize() ([]byte, error) {
-	var lines [][]byte
-	var errors SerializeErrors
-	for _,v := range self.V {
-		b, err := v.Serialize()
-		if err != nil {
-			errors = append(errors, err)
+	_src, err := obj["src"].(json.Number).Int64()
+	if err != nil {
+		return err
+	}
+	_targ, err := obj["targ"].(json.Number).Int64()
+	if err != nil {
+		return err
+	}
+	src := int(_src)
+	targ := int(_targ)
+	label := strings.TrimSpace(obj["label"].(string))
+	if o, err := vids.Get(types.Int(src)); err != nil {
+		return err
+	} else {
+		u := o.(*goiso.Vertex)
+		if o, err := vids.Get(types.Int(targ)); err != nil {
+			return err
 		} else {
-			lines = append(lines, []byte("vertex\t"), b, []byte("\n"))
+			v := o.(*goiso.Vertex)
+			g.AddEdge(u, v, label)
 		}
 	}
-	for _, edges := range self.E {
-		for _, e := range edges {
-			b, err := e.Serialize()
-			if err != nil {
-				errors = append(errors, err)
-			} else {
-				lines = append(lines, []byte("edge\t"), b, []byte("\n"))
-			}
-		}
-	}
-	final := bytes.Join(lines, nil)
-	if len(errors) == 0 {
-		return final, nil
-	}
-	return final, errors
+	return nil
 }
 
-func LoadVertex(data []byte) (vertex *Vertex, err error) {
-	obj, err := parseJson(data)
-	if err != nil {
-		return nil, err
-	}
-	id, err := obj["id"].(json.Number).Int64()
-	if err != nil {
-		return nil, err
-	}
-	label := obj["label"].(string)
-	vertex = &Vertex{
-		Id: id,
-		Label: strings.TrimSpace(label),
-		Rest: make(jsonObject),
-	}
-	for k,v := range obj {
-		vertex.Rest[k] = v
-	}
-	return vertex, nil
-}
-
-func (self *Vertex) Serialize() ([]byte, error) {
+func SerializeEdge(g *goiso.Graph, e *goiso.Edge) ([]byte, error) {
 	obj := make(jsonObject)
-	obj["id"] = self.Id
-	obj["label"] = self.Label
-	for k, v := range self.Rest {
-		obj[k] = v
-	}
+	obj["src"] = g.V[e.Src].Id
+	obj["targ"] = g.V[e.Targ].Id
+	obj["label"] = g.Colors[e.Color]
 	return renderJson(obj)
-}
-
-func (self *Vertex) String() string {
-	return fmt.Sprintf(
-		"Vertex(%d, '%s')%v;",
-		self.Id, self.Label, self.Rest,
-	)
-}
-
-func LoadEdge(data []byte) (edge *Edge, err error) {
-	obj, err := parseJson(data)
-	if err != nil {
-		return nil, err
-	}
-	src, err := obj["src"].(json.Number).Int64()
-	if err != nil {
-		return nil, err
-	}
-	targ, err := obj["targ"].(json.Number).Int64()
-	if err != nil {
-		return nil, err
-	}
-	edge = &Edge{
-		Arc: Arc{
-			Src: src,
-			Targ: targ,
-		},
-		Label: obj["label"].(string),
-		Rest: make(jsonObject),
-	}
-	for k,v := range obj {
-		edge.Rest[k] = v
-	}
-	return edge, nil
-}
-
-func (self *Edge) Serialize() ([]byte, error) {
-	obj := make(jsonObject)
-	obj["src"] = self.Src
-	obj["targ"] = self.Targ
-	obj["label"] = self.Label
-	for k, v := range self.Rest {
-		obj[k] = v
-	}
-	return renderJson(obj)
-}
-
-func (self *Edge) String() string {
-	return fmt.Sprintf(
-		"%d->%d '%s' %v;",
-		self.Src, self.Targ, self.Label, self.Rest,
-	)
 }
 

@@ -23,34 +23,109 @@ package mine
 *   USA
 */
 
-
 import (
-	"github.com/timtadh/fsm/graph"
+	"sort"
 )
 
-func Mine(G *graph.Graph, support int) (<-chan *graph.Graph) {
-	return nil
-}
+import (
+	"github.com/timtadh/goiso"
+	"github.com/timtadh/data-structures/tree/bptree"
+	"github.com/timtadh/data-structures/types"
+)
 
-func initial(G *graph.Graph, out chan<- *graph.Graph) {
-	for _, v := range G.V {
-		out<-G.SubGraph([]int64{v.Id}, nil, nil)
-	}
-	close(out)
-}
+type byFirstId []*goiso.SubGraph
 
-func extend(G *graph.Graph, in <-chan *graph.Graph, out chan<- *graph.Graph) {
-	for sg := range in {
-		for _, v := range sg.V {
-			for _, u := range G.Kids(v) {
-				if !sg.Has(u) {
-					V := sg.Vertices()
-					V = append(V, u.Id)
-					out<-G.SubGraph(V, nil, nil)
+func (self byFirstId) Len() int           { return len(self) }
+func (self byFirstId) Swap(i, j int)      { self[i], self[j] = self[j], self[i] }
+func (self byFirstId) Less(i, j int) bool { return self[i].V[0].Id < self[j].V[0].Id }
+
+func Mine(G *goiso.Graph, support int) (<-chan *goiso.SubGraph) {
+	fsg := make(chan *goiso.SubGraph)
+	sgs := Cycle(Initial(G), support)
+	miner := func(sgs []*goiso.SubGraph) {
+		for len(sgs) > 0 {
+			nsgs := make([]*goiso.SubGraph, 0, len(sgs))
+			for _, sg := range sgs {
+				if len(sg.V) > 1 {
+					fsg <- sg
 				}
+				if nsg := Extend(sg); nsg != nil {
+					nsgs = append(nsgs, nsg)
+				}
+			}
+			sgs = Cycle(nsgs, support)
+		}
+		close(fsg)
+	}
+	go miner(sgs)
+	return fsg
+}
+
+func Initial(G *goiso.Graph) []*goiso.SubGraph {
+	var graphs []*goiso.SubGraph
+	for _, v := range G.V {
+		graphs = append(graphs, G.SubGraph([]int{v.Idx}, nil))
+	}
+	sort.Sort(byFirstId(graphs))
+	return graphs
+}
+
+func Extend(sg *goiso.SubGraph) (*goiso.SubGraph) {
+	for _, v := range sg.V {
+		// v.Idx is the index on the SubGraph
+		// v.Id is the index on the original Graph
+		for _, e := range sg.G.Kids[v.Id] {
+			if !sg.Has(e.Targ) {
+				nsg := sg.Extend(e.Targ)
+				return nsg
 			}
 		}
 	}
-	close(out)
+	return nil
+}
+
+func Support(sgs []*goiso.SubGraph) int {
+	roots := make(map[int]bool)
+	for _, sg := range sgs {
+		roots[sg.V[0].Id] = true
+	}
+	return len(roots)
+}
+
+func Filter(support int, partition [][]*goiso.SubGraph) []*goiso.SubGraph {
+	var filtered []*goiso.SubGraph
+	for _, part := range partition {
+		if Support(part) >= support {
+			filtered = append(filtered, part...)
+		}
+	}
+	return filtered
+}
+
+func Cycle(sgs []*goiso.SubGraph, support int) []*goiso.SubGraph {
+	graphs := bptree.NewBpTree(18)
+	for _, sg := range sgs {
+		if err := graphs.Add(types.String(sg.Label()), sg); err != nil {
+			panic(err)
+		}
+	}
+	var partition [][]*goiso.SubGraph
+	keys := make(map[string]bool)
+	for k, next := graphs.Keys()(); next != nil; k, next = next() {
+		key := string(k.(types.String))
+		keys[key] = true
+	}
+	for k, _ := range keys {
+		key := types.String(k)
+		var part []*goiso.SubGraph
+		for _, v, next := graphs.Range(key,key)(); next != nil; _, v, next = next() {
+			sg := v.(*goiso.SubGraph)
+			part = append(part, sg)
+		}
+		partition = append(partition, part)
+	}
+	filtered := Filter(support, partition)
+	sort.Sort(byFirstId(filtered))
+	return filtered
 }
 

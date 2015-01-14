@@ -40,6 +40,7 @@ import (
 
 import (
 	"github.com/timtadh/fsm/graph"
+	"github.com/timtadh/fsm/mine"
 )
 
 var ErrorCodes map[string]int = map[string]int{
@@ -210,8 +211,8 @@ func main() {
 		Usage(ErrorCodes["opts"])
 	}
 
-	for _, v := range G.V {
-		fmt.Printf("%v : in %d : out %d\n", v.Label, len(G.Parents(v)), len(G.Kids(v)))
+	for sg := range mine.Mine(G, 4) {
+		fmt.Println(sg)
 	}
 }
 
