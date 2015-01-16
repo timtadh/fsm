@@ -3,4 +3,6 @@
 pkg
 bin
 *.g
+*.png
+data
 
