@@ -39,7 +39,7 @@ const TREESIZE = 127
 
 func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 	fsg := make(chan *goiso.SubGraph)
-	sgs := Cycle(Initial(G, support), support)
+	sgs := cycle(initial(G, support), support)
 	miner := func(sgs []*goiso.SubGraph) {
 		for len(sgs) > 0 {
 			log.Printf("Extending Subgraphs of Size %v", len(sgs[0].V))
@@ -70,7 +70,7 @@ func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 			log.Printf("Filtering Subgraphs of Size %v", len(sgs[0].V)+1)
 			sgs = nil
 			runtime.GC()
-			sgs = Cycle(nsgs, support)
+			sgs = cycle(nsgs, support)
 			nsgs = nil
 			runtime.GC()
 		}
@@ -80,20 +80,27 @@ func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 	return fsg
 }
 
-func Initial(G *goiso.Graph, support int) *bptree.BpTree {
+func initial(G *goiso.Graph, support int) *bptree.BpTree {
 	graphs := bptree.NewBpTree(TREESIZE)
+	Initial(G, support, func(sg *goiso.SubGraph) {
+		if err := graphs.Add(types.String(sg.Label()), sg); err != nil {
+			panic(err)
+		}
+	})
+	return graphs
+}
+
+func Initial(G *goiso.Graph, support int, send func(*goiso.SubGraph)) {
 	log.Printf("Creating initial set")
+	graphs := 0
 	for _, v := range G.V {
 		if G.ColorFrequency(v.Color) < support {
 			continue
 		}
-		sg := G.SubGraph([]int{v.Idx}, nil)
-		if err := graphs.Add(types.String(sg.Label()), sg); err != nil {
-			panic(err)
-		}
+		send(G.SubGraph([]int{v.Idx}, nil))
+		graphs += 1
 	}
-	log.Printf("Done creating initial set %d", graphs.Size())
-	return graphs
+	log.Printf("Done creating initial set %d", graphs)
 }
 
 func extenders(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, support int) {
@@ -111,23 +118,36 @@ func extenders(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, support in
 
 func extend(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool, support int) {
 	for sg := range in {
-		for _, v := range sg.V {
-			// v.Idx is the index on the SubGraph
-			// v.Id is the index on the original Graph
-			for _, e := range sg.G.Kids[v.Id] {
-				if sg.G.ColorFrequency(sg.G.V[e.Targ].Color) < support {
-					continue
-				}
-				if !sg.Has(e.Targ) {
-					out <- sg.Extend(e.Targ)
-				}
-			}
-		}
+		do_extend(sg, support, func(ext *goiso.SubGraph) {
+			out <- ext
+		})
 	}
 	done <- true
 }
 
-func Set(sg *goiso.SubGraph) *set.SortedSet {
+func do_extend(sg *goiso.SubGraph, support int, send func(*goiso.SubGraph)) {
+	for _, v := range sg.V {
+		// v.Idx is the index on the SubGraph
+		// v.Id is the index on the original Graph
+		for _, e := range sg.G.Kids[v.Id] {
+			if sg.G.ColorFrequency(sg.G.V[e.Targ].Color) < support {
+				continue
+			}
+			if !sg.Has(e.Targ) {
+				send(sg.Extend(e.Targ))
+			}
+		}
+	}
+}
+
+func Extend(sg *goiso.SubGraph, support int) (extensions []*goiso.SubGraph) {
+	do_extend(sg, support, func(ext *goiso.SubGraph) {
+		extensions = append(extensions, ext)
+	})
+	return extensions
+}
+
+func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 	s := set.NewSortedSet(len(sg.V))
 	for _, v := range sg.V {
 		if err := s.Add(types.Int(v.Id)); err != nil {
@@ -137,12 +157,12 @@ func Set(sg *goiso.SubGraph) *set.SortedSet {
 	return s
 }
 
-func NonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
+func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
 	log.Printf("computing non-overlapping %d", len(sgs))
 	vids := set.NewSortedSet(len(sgs))
 	non_overlapping := make([]*goiso.SubGraph, 0, len(sgs))
 	for _, sg := range sgs {
-		s := Set(sg)
+		s := vertexSet(sg)
 		if !vids.Overlap(s) {
 			non_overlapping = append(non_overlapping, sg)
 			for v, next := s.Items()(); next != nil; v, next = next() {
@@ -173,25 +193,34 @@ func filters(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGrap
 }
 
 func filter(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool) {
-	type pair struct {
-		idx int
-		set *set.SortedSet
-	}
 	for part := range in {
-		if len(part) < support {
-			continue
-		}
-		part = NonOverlapping(part)
-		if len(part) >= support {
-			for _, sg := range part {
-				out <- sg
-			}
-		}
+		do_filter(part, support, func(sg *goiso.SubGraph) {
+			out <- sg
+		})
 	}
 	done <- true
 }
 
-func Cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
+func do_filter(part []*goiso.SubGraph, support int, send func(*goiso.SubGraph)) {
+	if len(part) < support {
+		return
+	}
+	part = nonOverlapping(part)
+	if len(part) >= support {
+		for _, sg := range part {
+			send(sg)
+		}
+	}
+}
+
+func Filter(part []*goiso.SubGraph, support int) (filtered []*goiso.SubGraph) {
+	do_filter(part, support, func(sg *goiso.SubGraph) {
+		filtered = append(filtered, sg)
+	})
+	return filtered
+}
+
+func cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
 	snd := make(chan []*goiso.SubGraph)
 	rcv := make(chan *goiso.SubGraph)
 	go filters(support, snd, rcv)
@@ -215,3 +244,4 @@ func Cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
 	log.Printf("filtered size %d", len(filtered))
 	return filtered
 }
+
