@@ -26,12 +26,14 @@ package main
 import (
 	"os"
 	"fmt"
+	"log"
 	"path"
 	"io"
 	"io/ioutil"
 	"compress/gzip"
 	"strings"
 	"strconv"
+	"runtime"
 )
 
 import (
@@ -43,6 +45,10 @@ import (
 	"github.com/timtadh/fsm/mine"
 )
 
+func init() {
+	runtime.GOMAXPROCS(4)
+}
+
 var ErrorCodes map[string]int = map[string]int{
 	"usage":1,
 	"version":2,
@@ -51,43 +57,42 @@ var ErrorCodes map[string]int = map[string]int{
 	"baddir":6,
 }
 
-var UsageMessage string = "fsm [options] <graphs>"
+var UsageMessage string = "fsm [options] -s <support> <graphs>"
 var ExtendedMessage string = `
 fsm - frequent subgraph mine the graph(s)
 
 Options
--h, --help                          print this message
--s, --stdin                         read from stdin instead
--e, --edge-filter=<string>          filter edges of type <string> (can be
-specified multiple times)
--n, --node-filter=<string>          filter nodes of type <string> (can be
-specified multiple times)
+    -h, --help                          print this message
+    -s, --support=<int>                 number of unique embeddings (required)
+    -m, --min-vertices=<int>            minimum number of nodes to report
+                                        (5 by default)
 
 Specs
-<graphs>                            path to graph files
-<direction>                         {backward, forward, both}
+    <graphs>                            path to graph files
+    <support>                           an int
 
 Graph File Format
-The graph file format is a line delimited format with vertex lines and edge
-lines. For example:
 
-vertex	{"id":136,"label":""}
-edge	{"src":23,"targ":25,"label":"ddg"}
+    The graph file format is a line delimited format with vertex lines and edge
+    lines. For example:
 
-Format:
+    vertex	{"id":136,"label":""}
+    edge	{"src":23,"targ":25,"label":"ddg"}
 
-line -> vertex "\n"
-| edge "\n"
+Grammar:
 
-vertex -> "vertex" "\t" vertex_json
+    line -> vertex "\n"
+          | edge "\n"
 
-edge -> "edge" "\t" edge_json
+    vertex -> "vertex" "\t" vertex_json
 
-vertex_json -> {"id": int, "label": string, ...}
-// other items are optional
+    edge -> "edge" "\t" edge_json
 
-edge_json -> {"src": int, "targ": int, "label": int, ...}
-// other items are  optional
+    vertex_json -> {"id": int, "label": string, ...}
+    // other items are optional
+
+    edge_json -> {"src": int, "targ": int, "label": int, ...}
+    // other items are  optional
 `
 
 func Usage(code int) {
@@ -159,12 +164,11 @@ func main() {
 
 	args, optargs, err := getopt.GetOpt(
 		os.Args[1:],
-		"hsp:c:d:e:n:",
+		"hs:m:",
 		[]string{
 			"help",
-			"stdin",
-			"edge-filter=",
-			"node-filter=",
+			"support=",
+			"min-vertices=",
 		},
 	)
 	if err != nil {
@@ -172,23 +176,24 @@ func main() {
 		Usage(ErrorCodes["opts"])
 	}
 
-	stdin := false
-	filtered_edges := make(map[string]bool)
-	filtered_nodes := make(map[string]bool)
+	support := -1
+	min_vert := 5
 	for _, oa := range optargs {
 		switch oa.Opt() {
-			case "-h", "--help": Usage(0)
-			case "-s", "--stdin": stdin = true
-		case "-e", "--edge-filter":
-			filtered_edges[oa.Arg()] = true
-		case "-n", "--node-filter":
-			filtered_nodes[oa.Arg()] = true
+		case "-h", "--help": Usage(0)
+		case "-s", "--support": support = ParseInt(oa.Arg())
+		case "-m", "--min-vertices": min_vert = ParseInt(oa.Arg())
 		}
+	}
+
+	if support < 1 {
+		fmt.Fprintf(os.Stderr, "You must supply a support greater than 0, you gave %v\n", support)
+		Usage(ErrorCodes["opts"])
 	}
 
 	var reader io.Reader
 	var close_reader func()
-	if stdin {
+	if len(args) <= 0 {
 		reader = os.Stdin
 		close_reader = func() {}
 	} else {
@@ -202,16 +207,15 @@ func main() {
 
 	type json_object map[string]interface{}
 
-
 	G, err := graph.LoadGraph(reader)
-
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error loading the graph")
 		fmt.Fprintln(os.Stderr, err)
 		Usage(ErrorCodes["opts"])
 	}
 
-	for sg := range mine.Mine(G, 4) {
+	log.Print("Loaded graph, starting mining")
+	for sg := range mine.Mine(G, support, min_vert) {
 		fmt.Println(sg)
 	}
 }
