@@ -21,7 +21,7 @@ package mine
 *   51 Franklin Street, Fifth Floor,
 *   Boston, MA  02110-1301
 *   USA
-*/
+ */
 
 import (
 	"log"
@@ -29,15 +29,15 @@ import (
 )
 
 import (
-	"github.com/timtadh/goiso"
+	"github.com/timtadh/data-structures/set"
 	"github.com/timtadh/data-structures/tree/bptree"
 	"github.com/timtadh/data-structures/types"
-	"github.com/timtadh/data-structures/set"
+	"github.com/timtadh/goiso"
 )
 
 const TREESIZE = 127
 
-func Mine(G *goiso.Graph, support, minpat int) (<-chan *goiso.SubGraph) {
+func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 	fsg := make(chan *goiso.SubGraph)
 	sgs := Cycle(Initial(G, support), support)
 	miner := func(sgs []*goiso.SubGraph) {
@@ -54,7 +54,7 @@ func Mine(G *goiso.Graph, support, minpat int) (<-chan *goiso.SubGraph) {
 						fsg <- sg
 					}
 					snd <- sg
-					if i % 1000 == 0 {
+					if i%1000 == 0 {
 						log.Printf("extended %d", i)
 					}
 					i += 1
@@ -119,12 +119,12 @@ func extend(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- b
 					continue
 				}
 				if !sg.Has(e.Targ) {
-					out<-sg.Extend(e.Targ)
+					out <- sg.Extend(e.Targ)
 				}
 			}
 		}
 	}
-	done<-true
+	done <- true
 }
 
 func Set(sg *goiso.SubGraph) *set.SortedSet {
@@ -157,7 +157,7 @@ func NonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
 	return non_overlapping
 }
 
-func filters(support int, in <-chan []*goiso.SubGraph, out chan<-*goiso.SubGraph) {
+func filters(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph) {
 	log.Printf("creating filters")
 	const N = 4
 	done := make(chan bool)
@@ -188,7 +188,7 @@ func filter(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph
 			}
 		}
 	}
-	done<-true
+	done <- true
 }
 
 func Cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
@@ -199,12 +199,12 @@ func Cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
 		for k, next := sgs.Keys()(); next != nil; k, next = next() {
 			key := k.(types.String)
 			var part []*goiso.SubGraph
-			for _, v, next := sgs.Range(key,key)(); next != nil; _, v, next = next() {
+			for _, v, next := sgs.Range(key, key)(); next != nil; _, v, next = next() {
 				sg := v.(*goiso.SubGraph)
 				part = append(part, sg)
 			}
 			log.Printf("filtering partition of size %d", len(part))
-			snd<-part
+			snd <- part
 		}
 		close(snd)
 	}()
@@ -215,4 +215,3 @@ func Cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
 	log.Printf("filtered size %d", len(filtered))
 	return filtered
 }
-

@@ -21,14 +21,14 @@ package graph
 *   51 Franklin Street, Fifth Floor,
 *   Boston, MA  02110-1301
 *   USA
-*/
+ */
 
 import (
-	"io"
-	"fmt"
 	"bytes"
-	"strings"
 	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
 )
 
 import (
@@ -50,7 +50,7 @@ func (self error_list) Error() string {
 	}
 	return "[" + strings.Join(s, ",") + "]"
 }
-func (self ParseErrors) Error() string { return error_list(self).Error() }
+func (self ParseErrors) Error() string     { return error_list(self).Error() }
 func (self SerializeErrors) Error() string { return error_list(self).Error() }
 
 func ProcessLines(reader io.Reader, process func([]byte)) {
@@ -214,4 +214,3 @@ func SerializeEdge(g *goiso.Graph, e *goiso.Edge) ([]byte, error) {
 	obj["label"] = g.Colors[e.Color]
 	return renderJson(obj)
 }
-

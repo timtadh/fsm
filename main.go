@@ -21,19 +21,19 @@ package main
 *   51 Franklin Street, Fifth Floor,
 *   Boston, MA  02110-1301
 *   USA
-*/
+ */
 
 import (
-	"os"
+	"compress/gzip"
 	"fmt"
-	"log"
-	"path"
 	"io"
 	"io/ioutil"
-	"compress/gzip"
-	"strings"
-	"strconv"
+	"log"
+	"os"
+	"path"
 	"runtime"
+	"strconv"
+	"strings"
 )
 
 import (
@@ -50,11 +50,11 @@ func init() {
 }
 
 var ErrorCodes map[string]int = map[string]int{
-	"usage":1,
-	"version":2,
-	"opts":3,
-	"badint":5,
-	"baddir":6,
+	"usage":   1,
+	"version": 2,
+	"opts":    3,
+	"badint":  5,
+	"baddir":  6,
 }
 
 var UsageMessage string = "fsm [options] -s <support> <graphs>"
@@ -108,7 +108,9 @@ func Usage(code int) {
 
 func Input(input_path string) (reader io.Reader, closeall func()) {
 	stat, err := os.Stat(input_path)
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	if stat.IsDir() {
 		return InputDir(input_path)
 	} else {
@@ -118,10 +120,14 @@ func Input(input_path string) (reader io.Reader, closeall func()) {
 
 func InputFile(input_path string) (reader io.Reader, closeall func()) {
 	freader, err := os.Open(input_path)
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	if strings.HasSuffix(input_path, ".gz") {
 		greader, err := gzip.NewReader(freader)
-		if err != nil { panic(err) }
+		if err != nil {
+			panic(err)
+		}
 		return greader, func() {
 			greader.Close()
 			freader.Close()
@@ -136,9 +142,13 @@ func InputDir(input_dir string) (reader io.Reader, closeall func()) {
 	var readers []io.Reader
 	var closers []func()
 	dir, err := ioutil.ReadDir(input_dir)
-	if err != nil { panic(err) }
+	if err != nil {
+		panic(err)
+	}
 	for _, info := range dir {
-		if info.IsDir() { continue }
+		if info.IsDir() {
+			continue
+		}
 		creader, closer := InputFile(path.Join(input_dir, info.Name()))
 		readers = append(readers, creader)
 		closers = append(closers, closer)
@@ -180,9 +190,12 @@ func main() {
 	min_vert := 5
 	for _, oa := range optargs {
 		switch oa.Opt() {
-		case "-h", "--help": Usage(0)
-		case "-s", "--support": support = ParseInt(oa.Arg())
-		case "-m", "--min-vertices": min_vert = ParseInt(oa.Arg())
+		case "-h", "--help":
+			Usage(0)
+		case "-s", "--support":
+			support = ParseInt(oa.Arg())
+		case "-m", "--min-vertices":
+			min_vert = ParseInt(oa.Arg())
 		}
 	}
 
@@ -219,5 +232,3 @@ func main() {
 		fmt.Println(sg)
 	}
 }
-
-
