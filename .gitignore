@@ -5,4 +5,6 @@ bin
 *.g
 *.png
 data
+memprof
+cpuprof
 

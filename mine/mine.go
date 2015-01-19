@@ -24,8 +24,10 @@ package mine
  */
 
 import (
+	"io"
 	"log"
 	"runtime"
+	"runtime/pprof"
 )
 
 import (
@@ -37,7 +39,7 @@ import (
 
 const TREESIZE = 127
 
-func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
+func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.SubGraph {
 	fsg := make(chan *goiso.SubGraph)
 	sgs := cycle(initial(G, support), support)
 	miner := func(sgs []*goiso.SubGraph) {
@@ -72,6 +74,7 @@ func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 			runtime.GC()
 			sgs = cycle(nsgs, support)
 			nsgs = nil
+			pprof.WriteHeapProfile(mprof)
 			runtime.GC()
 		}
 		close(fsg)
