@@ -24,10 +24,8 @@ package mine
  */
 
 import (
-	"io"
 	"log"
 	"runtime"
-	"runtime/pprof"
 )
 
 import (
@@ -46,7 +44,7 @@ type Miner struct {
 	Report chan<- *goiso.SubGraph
 }
 
-func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.SubGraph {
+func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 	fsg := make(chan *goiso.SubGraph)
 	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg}
 
@@ -72,9 +70,7 @@ func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.Su
 			if count <= 0 {
 				break
 			}
-			pprof.WriteHeapProfile(mprof)
 			runtime.GC()
-			log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 		}
 		close(m.Report)
 	}

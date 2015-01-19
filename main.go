@@ -32,7 +32,6 @@ import (
 	"os"
 	"path"
 	"runtime"
-	"runtime/pprof"
 	"strconv"
 	"strings"
 )
@@ -229,22 +228,9 @@ func main() {
 		Usage(ErrorCodes["opts"])
 	}
 
-	cf, err := os.Create("cpuprof")
-	if err != nil {
-		log.Fatal(err)
-	}
-	pprof.StartCPUProfile(cf)
-	defer pprof.StopCPUProfile()
-
-
-	mf, err := os.Create("memprof")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer mf.Close()
-
 	log.Print("Loaded graph, starting mining")
-	for sg := range mine.Mine(G, support, min_vert, mf) {
+	for sg := range mine.Mine(G, support, min_vert) {
 		fmt.Println(sg)
 	}
 }
+
