@@ -39,78 +39,90 @@ import (
 
 const TREESIZE = 127
 
+type Miner struct {
+	Graph *goiso.Graph
+	Support int
+	MinVertices int
+	Report chan<- *goiso.SubGraph
+}
+
 func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.SubGraph {
 	fsg := make(chan *goiso.SubGraph)
-	sgs := cycle(initial(G, support), support)
-	miner := func(sgs []*goiso.SubGraph) {
-		for len(sgs) > 0 {
-			// log.Printf("Extending Subgraphs of Size %v", len(sgs[0].V))
-			nsgs := bptree.NewBpTree(TREESIZE)
-			snd := make(chan *goiso.SubGraph)
-			rcv := make(chan *goiso.SubGraph)
-			go extenders(snd, rcv, support)
-			go func() {
-				i := 0
-				for _, sg := range sgs {
-					if len(sg.V) > minpat {
-						fsg <- sg
-					}
-					snd <- sg
-					if i%1000 == 0 {
-						log.Printf("extended %d", i)
-					}
-					i += 1
-				}
-				close(snd)
-			}()
-			for sg := range rcv {
-				if err := nsgs.Add(types.String(sg.Label()), sg); err != nil {
+	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg}
+
+	partitioner := func(nsgs *bptree.BpTree, out chan<- *goiso.SubGraph) {
+		m.partitionAndFilter(nsgs, func(sg *goiso.SubGraph) {
+			out<-sg
+		})
+		close(out)
+	}
+
+	miner := func(nsgs *bptree.BpTree) {
+		for true {
+			filtered := make(chan *goiso.SubGraph)
+			go partitioner(nsgs, filtered)
+			nsgs = bptree.NewBpTree(TREESIZE)
+			count := 0
+			m.extendAll(filtered, func(sg *goiso.SubGraph) {
+				if err := nsgs.Add(types.ByteSlice(sg.ShortLabel()), sg); err != nil {
 					panic(err)
 				}
+				count++
+			})
+			if count <= 0 {
+				break
 			}
-			// log.Printf("extended size %d", nsgs.Size())
-			// log.Printf("Filtering Subgraphs of Size %v", len(sgs[0].V)+1)
-			sgs = nil
-			runtime.GC()
-			sgs = cycle(nsgs, support)
-			nsgs = nil
 			pprof.WriteHeapProfile(mprof)
 			runtime.GC()
+			log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 		}
-		close(fsg)
+		close(m.Report)
 	}
-	go miner(sgs)
+	go miner(m.initial())
 	return fsg
 }
 
-func initial(G *goiso.Graph, support int) *bptree.BpTree {
+func (m *Miner) initial() *bptree.BpTree {
 	graphs := bptree.NewBpTree(TREESIZE)
-	Initial(G, support, func(sg *goiso.SubGraph) {
-		if err := graphs.Add(types.String(sg.Label()), sg); err != nil {
+	m.Initial(func(sg *goiso.SubGraph) {
+		if err := graphs.Add(types.ByteSlice(sg.ShortLabel()), sg); err != nil {
 			panic(err)
 		}
 	})
 	return graphs
 }
 
-func Initial(G *goiso.Graph, support int, send func(*goiso.SubGraph)) {
+func (m *Miner) Initial(send func(*goiso.SubGraph)) {
 	log.Printf("Creating initial set")
 	graphs := 0
-	for _, v := range G.V {
-		if G.ColorFrequency(v.Color) < support {
+	for _, v := range m.Graph.V {
+		if m.Graph.ColorFrequency(v.Color) < m.Support {
 			continue
 		}
-		send(G.SubGraph([]int{v.Idx}, nil))
+		send(m.Graph.SubGraph([]int{v.Idx}, nil))
 		graphs += 1
 	}
 	log.Printf("Done creating initial set %d", graphs)
 }
 
-func extenders(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, support int) {
+func (m *Miner) extendAll(in <-chan *goiso.SubGraph, send func(*goiso.SubGraph)) {
+	rcv := make(chan *goiso.SubGraph, 25)
+	go m.extenders(in, rcv)
+	i := 0
+	for sg := range rcv {
+		send(sg)
+		if i%1000 == 0 {
+			log.Printf("extended %d", i)
+		}
+		i++
+	}
+}
+
+func (m *Miner) extenders(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph) {
 	const N = 4
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
-		go extend(in, out, done, support)
+		go m.extend(in, out, done)
 	}
 	for i := 0; i < N; i++ {
 		<-done
@@ -119,21 +131,21 @@ func extenders(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, support in
 	close(done)
 }
 
-func extend(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool, support int) {
+func (m *Miner) extend(in <-chan *goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool) {
 	for sg := range in {
-		do_extend(sg, support, func(ext *goiso.SubGraph) {
+		m.do_extend(sg, func(ext *goiso.SubGraph) {
 			out <- ext
 		})
 	}
 	done <- true
 }
 
-func do_extend(sg *goiso.SubGraph, support int, send func(*goiso.SubGraph)) {
+func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 	for _, v := range sg.V {
 		// v.Idx is the index on the SubGraph
 		// v.Id is the index on the original Graph
-		for _, e := range sg.G.Kids[v.Id] {
-			if sg.G.ColorFrequency(sg.G.V[e.Targ].Color) < support {
+		for _, e := range m.Graph.Kids[v.Id] {
+			if m.Graph.ColorFrequency(m.Graph.V[e.Targ].Color) < m.Support {
 				continue
 			}
 			if !sg.Has(e.Targ) {
@@ -143,8 +155,8 @@ func do_extend(sg *goiso.SubGraph, support int, send func(*goiso.SubGraph)) {
 	}
 }
 
-func Extend(sg *goiso.SubGraph, support int) (extensions []*goiso.SubGraph) {
-	do_extend(sg, support, func(ext *goiso.SubGraph) {
+func (m *Miner) Extend(sg *goiso.SubGraph) (extensions []*goiso.SubGraph) {
+	m.do_extend(sg, func(ext *goiso.SubGraph) {
 		extensions = append(extensions, ext)
 	})
 	return extensions
@@ -180,12 +192,12 @@ func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
 	return non_overlapping
 }
 
-func filters(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph) {
+func (m *Miner) filters(in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph) {
 	// log.Printf("creating filters")
 	const N = 4
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
-		go filter(support, in, out, done)
+		go m.filter(in, out, done)
 	}
 	for i := 0; i < N; i++ {
 		<-done
@@ -195,41 +207,44 @@ func filters(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGrap
 	// log.Printf("done filtering")
 }
 
-func filter(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool) {
+func (m *Miner) filter(in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool) {
 	for part := range in {
-		do_filter(part, support, func(sg *goiso.SubGraph) {
+		m.do_filter(part, func(sg *goiso.SubGraph) {
 			out <- sg
 		})
 	}
 	done <- true
 }
 
-func do_filter(part []*goiso.SubGraph, support int, send func(*goiso.SubGraph)) {
-	if len(part) < support {
+func (m *Miner) do_filter(part []*goiso.SubGraph, send func(*goiso.SubGraph)) {
+	if len(part) < m.Support {
 		return
 	}
 	part = nonOverlapping(part)
-	if len(part) >= support {
+	if len(part) >= m.Support {
 		for _, sg := range part {
 			send(sg)
+			if len(sg.V) > m.MinVertices {
+				m.Report<-sg
+			}
 		}
 	}
 }
 
-func Filter(part []*goiso.SubGraph, support int) (filtered []*goiso.SubGraph) {
-	do_filter(part, support, func(sg *goiso.SubGraph) {
+func (m *Miner) Filter(part []*goiso.SubGraph) (filtered []*goiso.SubGraph) {
+	m.do_filter(part, func(sg *goiso.SubGraph) {
 		filtered = append(filtered, sg)
 	})
 	return filtered
 }
 
-func cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
+func (m *Miner) partitionAndFilter(sgs *bptree.BpTree, send func(*goiso.SubGraph)) {
 	snd := make(chan []*goiso.SubGraph)
 	rcv := make(chan *goiso.SubGraph)
-	go filters(support, snd, rcv)
+	go m.filters(snd, rcv)
 	go func() {
 		for k, next := sgs.Keys()(); next != nil; k, next = next() {
-			key := k.(types.String)
+			key := k.(types.ByteSlice)
 			var part []*goiso.SubGraph
 			for _, v, next := sgs.Range(key, key)(); next != nil; _, v, next = next() {
 				sg := v.(*goiso.SubGraph)
@@ -240,11 +255,8 @@ func cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
 		}
 		close(snd)
 	}()
-	filtered := make([]*goiso.SubGraph, 0, sgs.Size())
 	for sg := range rcv {
-		filtered = append(filtered, sg)
+		send(sg)
 	}
-	log.Printf("filtered size %d", len(filtered))
-	return filtered
 }
 

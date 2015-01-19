@@ -173,6 +173,7 @@ func ParseInt(str string) int {
 
 func main() {
 
+	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 	args, optargs, err := getopt.GetOpt(
 		os.Args[1:],
 		"hs:m:",
