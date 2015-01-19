@@ -62,10 +62,9 @@ func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.Su
 			filtered := make(chan *goiso.SubGraph)
 			go partitioner(nsgs, filtered)
 			nsgs = bptree.NewBpTree(TREESIZE)
-			runtime.GC()
 			count := 0
 			m.extendAll(filtered, func(sg *goiso.SubGraph) {
-				if err := nsgs.Add(types.String(sg.Label()), sg); err != nil {
+				if err := nsgs.Add(types.ByteSlice(sg.ShortLabel()), sg); err != nil {
 					panic(err)
 				}
 				count++
@@ -75,6 +74,7 @@ func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.Su
 			}
 			pprof.WriteHeapProfile(mprof)
 			runtime.GC()
+			log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 		}
 		close(m.Report)
 	}
@@ -85,7 +85,7 @@ func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.Su
 func (m *Miner) initial() *bptree.BpTree {
 	graphs := bptree.NewBpTree(TREESIZE)
 	m.Initial(func(sg *goiso.SubGraph) {
-		if err := graphs.Add(types.String(sg.Label()), sg); err != nil {
+		if err := graphs.Add(types.ByteSlice(sg.ShortLabel()), sg); err != nil {
 			panic(err)
 		}
 	})
@@ -106,7 +106,7 @@ func (m *Miner) Initial(send func(*goiso.SubGraph)) {
 }
 
 func (m *Miner) extendAll(in <-chan *goiso.SubGraph, send func(*goiso.SubGraph)) {
-	rcv := make(chan *goiso.SubGraph)
+	rcv := make(chan *goiso.SubGraph, 25)
 	go m.extenders(in, rcv)
 	i := 0
 	for sg := range rcv {
@@ -173,7 +173,7 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 }
 
 func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
-	log.Printf("computing non-overlapping %d", len(sgs))
+	// log.Printf("computing non-overlapping %d", len(sgs))
 	vids := set.NewSortedSet(len(sgs))
 	non_overlapping := make([]*goiso.SubGraph, 0, len(sgs))
 	for _, sg := range sgs {
@@ -188,12 +188,12 @@ func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
 			}
 		}
 	}
-	log.Printf("done computing non-overlapping (%d) %d -> %d", len(sgs[0].V), len(sgs), len(non_overlapping))
+	// log.Printf("done computing non-overlapping (%d) %d -> %d", len(sgs[0].V), len(sgs), len(non_overlapping))
 	return non_overlapping
 }
 
 func (m *Miner) filters(in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph) {
-	log.Printf("creating filters")
+	// log.Printf("creating filters")
 	const N = 4
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
@@ -204,7 +204,7 @@ func (m *Miner) filters(in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph)
 	}
 	close(out)
 	close(done)
-	log.Printf("done filtering")
+	// log.Printf("done filtering")
 }
 
 func (m *Miner) filter(in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool) {
@@ -244,13 +244,13 @@ func (m *Miner) partitionAndFilter(sgs *bptree.BpTree, send func(*goiso.SubGraph
 	go m.filters(snd, rcv)
 	go func() {
 		for k, next := sgs.Keys()(); next != nil; k, next = next() {
-			key := k.(types.String)
+			key := k.(types.ByteSlice)
 			var part []*goiso.SubGraph
 			for _, v, next := sgs.Range(key, key)(); next != nil; _, v, next = next() {
 				sg := v.(*goiso.SubGraph)
 				part = append(part, sg)
 			}
-			log.Printf("filtering partition of size %d", len(part))
+			// log.Printf("filtering partition of size %d", len(part))
 			snd <- part
 		}
 		close(snd)

@@ -173,6 +173,7 @@ func ParseInt(str string) int {
 
 func main() {
 
+	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 	args, optargs, err := getopt.GetOpt(
 		os.Args[1:],
 		"hs:m:",
@@ -243,7 +244,7 @@ func main() {
 	defer mf.Close()
 
 	log.Print("Loaded graph, starting mining")
-	for sg := range mine.Mine(G, support, min_vert, mf) {
-		fmt.Println(sg)
+	for _ = range mine.Mine(G, support, min_vert, mf) {
+		// fmt.Println(sg)
 	}
 }
