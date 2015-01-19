@@ -224,7 +224,7 @@ func (m *Miner) do_filter(part []*goiso.SubGraph, send func(*goiso.SubGraph)) {
 	if len(part) >= m.Support {
 		for _, sg := range part {
 			send(sg)
-			if len(sg.V) >= m.MinVertices {
+			if len(sg.V) > m.MinVertices {
 				m.Report<-sg
 			}
 		}

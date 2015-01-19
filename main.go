@@ -244,7 +244,7 @@ func main() {
 	defer mf.Close()
 
 	log.Print("Loaded graph, starting mining")
-	for _ = range mine.Mine(G, support, min_vert, mf) {
-		// fmt.Println(sg)
+	for sg := range mine.Mine(G, support, min_vert, mf) {
+		fmt.Println(sg)
 	}
 }
