@@ -44,7 +44,7 @@ func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.Su
 	sgs := cycle(initial(G, support), support)
 	miner := func(sgs []*goiso.SubGraph) {
 		for len(sgs) > 0 {
-			log.Printf("Extending Subgraphs of Size %v", len(sgs[0].V))
+			// log.Printf("Extending Subgraphs of Size %v", len(sgs[0].V))
 			nsgs := bptree.NewBpTree(TREESIZE)
 			snd := make(chan *goiso.SubGraph)
 			rcv := make(chan *goiso.SubGraph)
@@ -68,8 +68,8 @@ func Mine(G *goiso.Graph, support, minpat int, mprof io.Writer) <-chan *goiso.Su
 					panic(err)
 				}
 			}
-			log.Printf("extended size %d", nsgs.Size())
-			log.Printf("Filtering Subgraphs of Size %v", len(sgs[0].V)+1)
+			// log.Printf("extended size %d", nsgs.Size())
+			// log.Printf("Filtering Subgraphs of Size %v", len(sgs[0].V)+1)
 			sgs = nil
 			runtime.GC()
 			sgs = cycle(nsgs, support)
@@ -161,7 +161,7 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 }
 
 func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
-	log.Printf("computing non-overlapping %d", len(sgs))
+	// log.Printf("computing non-overlapping %d", len(sgs))
 	vids := set.NewSortedSet(len(sgs))
 	non_overlapping := make([]*goiso.SubGraph, 0, len(sgs))
 	for _, sg := range sgs {
@@ -176,12 +176,12 @@ func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
 			}
 		}
 	}
-	log.Printf("done computing non-overlapping (%d) %d -> %d", len(sgs[0].V), len(sgs), len(non_overlapping))
+	// log.Printf("done computing non-overlapping (%d) %d -> %d", len(sgs[0].V), len(sgs), len(non_overlapping))
 	return non_overlapping
 }
 
 func filters(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph) {
-	log.Printf("creating filters")
+	// log.Printf("creating filters")
 	const N = 4
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
@@ -192,7 +192,7 @@ func filters(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGrap
 	}
 	close(out)
 	close(done)
-	log.Printf("done filtering")
+	// log.Printf("done filtering")
 }
 
 func filter(support int, in <-chan []*goiso.SubGraph, out chan<- *goiso.SubGraph, done chan<- bool) {
@@ -235,7 +235,7 @@ func cycle(sgs *bptree.BpTree, support int) []*goiso.SubGraph {
 				sg := v.(*goiso.SubGraph)
 				part = append(part, sg)
 			}
-			log.Printf("filtering partition of size %d", len(part))
+			// log.Printf("filtering partition of size %d", len(part))
 			snd <- part
 		}
 		close(snd)
