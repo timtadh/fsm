@@ -36,7 +36,7 @@ import (
 	"github.com/timtadh/goiso"
 )
 
-const TREESIZE = 237
+const TREESIZE = 127
 
 type partitionIterator func() (part []*goiso.SubGraph, next partitionIterator)
 
@@ -50,9 +50,12 @@ type Miner struct {
 func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 	fsg := make(chan *goiso.SubGraph)
 	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg}
-	miner := func(p_it <-chan []*goiso.SubGraph) {
+	miner := func() {
+		p_it := m.initial()
+		round := 1
 		for true {
 			collectors := makeCollectors(4)
+			log.Printf("starting filtering %v", round)
 			m.filterAndExtend(p_it, func(sg *goiso.SubGraph) {
 				collectors.send(sg)
 			})
@@ -62,15 +65,18 @@ func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 			}
 			p_it = collectors.partsCh()
 			runtime.GC()
+			log.Printf("finished %v", round)
+			log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
+			round++
 		}
 		close(m.Report)
 	}
-	go miner(m.initial())
+	go miner()
 	return fsg
 }
 
 func (m *Miner) initial() <-chan []*goiso.SubGraph {
-	collectors := makeCollectors(4)
+	collectors := makeCollectors(16)
 	m.Initial(func(sg *goiso.SubGraph) {
 		collectors.send(sg)
 	})
@@ -142,6 +148,10 @@ func (m *Miner) worker(in <-chan []*goiso.SubGraph, send func(*goiso.SubGraph), 
 
 func (m *Miner) do_filter(part []*goiso.SubGraph, send func(*goiso.SubGraph)) {
 	if len(part) < m.Support {
+		return
+	}
+	if len(part) > m.Support*100 {
+		// skip super big groups as nonOverlapping takes for ever
 		return
 	}
 	part = nonOverlapping(part)
