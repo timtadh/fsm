@@ -48,15 +48,16 @@ type Miner struct {
 }
 
 func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
+	CPUs := runtime.NumCPU()
 	fsg := make(chan *goiso.SubGraph)
 	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg}
 	miner := func() {
 		p_it := m.initial()
 		round := 1
 		for true {
-			collectors := makeCollectors(4)
+			collectors := makeCollectors(CPUs)
 			log.Printf("starting filtering %v", round)
-			m.filterAndExtend(p_it, func(sg *goiso.SubGraph) {
+			m.filterAndExtend(CPUs*4, p_it, func(sg *goiso.SubGraph) {
 				collectors.send(sg)
 			})
 			collectors.close()
@@ -77,7 +78,8 @@ func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 }
 
 func (m *Miner) initial() <-chan []*goiso.SubGraph {
-	collectors := makeCollectors(16)
+	CPUs := runtime.NumCPU()
+	collectors := makeCollectors(CPUs)
 	m.Initial(func(sg *goiso.SubGraph) {
 		collectors.send(sg)
 	})
@@ -126,11 +128,10 @@ func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
 	return non_overlapping
 }
 
-func (m *Miner) workers(in <-chan []*goiso.SubGraph, send func(*goiso.SubGraph)) {
-	const N = 8
+func (m *Miner) filterAndExtend(N int, parts <-chan []*goiso.SubGraph, send func(*goiso.SubGraph)) {
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
-		go m.worker(in, send, done)
+		go m.worker(parts, send, done)
 	}
 	for i := 0; i < N; i++ {
 		<-done
@@ -179,10 +180,6 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 			}
 		}
 	}
-}
-
-func (m *Miner) filterAndExtend(parts <-chan []*goiso.SubGraph, send func(*goiso.SubGraph)) {
-	m.workers(parts, send)
 }
 
 func makePartitions(sgs *bptree.BpTree) (p_it partitionIterator) {
