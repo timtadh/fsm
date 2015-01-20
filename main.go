@@ -46,7 +46,7 @@ import (
 )
 
 func init() {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(runtime.NumCPU()*2)
 }
 
 var ErrorCodes map[string]int = map[string]int{
