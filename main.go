@@ -32,7 +32,6 @@ import (
 	"os"
 	"path"
 	"runtime"
-	"runtime/pprof"
 	"strconv"
 	"strings"
 )
@@ -47,7 +46,7 @@ import (
 )
 
 func init() {
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(runtime.NumCPU())
 }
 
 var ErrorCodes map[string]int = map[string]int{
@@ -228,13 +227,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		Usage(ErrorCodes["opts"])
 	}
-
-	f, err := os.Create("cpuprof")
-	if err != nil {
-		log.Fatal(err)
-	}
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
 
 	log.Print("Loaded graph, starting mining")
 	for sg := range mine.Mine(G, support, min_vert) {
