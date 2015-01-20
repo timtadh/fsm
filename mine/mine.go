@@ -60,12 +60,13 @@ func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 				collectors.send(sg)
 			})
 			collectors.close()
-			if collectors.size() <= 0 {
+			size := collectors.size() 
+			if size <= 0 {
 				break
 			}
 			p_it = collectors.partsCh()
 			runtime.GC()
-			log.Printf("finished %v", round)
+			log.Printf("finished %v with %v", round, size)
 			log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 			round++
 		}
