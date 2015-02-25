@@ -31,8 +31,8 @@ import (
 
 import (
 	"github.com/timtadh/data-structures/set"
-	"github.com/timtadh/data-structures/tree/bptree"
 	"github.com/timtadh/data-structures/types"
+	"github.com/timtadh/fsm/store"
 	"github.com/timtadh/goiso"
 )
 
@@ -182,17 +182,15 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 	}
 }
 
-func makePartitions(sgs *bptree.BpTree) (p_it partitionIterator) {
+func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
 	keys := sgs.Keys()
 	p_it = func() (part []*goiso.SubGraph, next partitionIterator) {
-		var k types.Equatable
-		k, keys = keys()
+		var key []byte
+		key, keys = keys()
 		if keys == nil {
 			return nil, nil
 		}
-		key := k.(types.ByteSlice)
-		for _, v, next := sgs.Range(key, key)(); next != nil; _, v, next = next() {
-			sg := v.(*goiso.SubGraph)
+		for _, sg, next := sgs.Range(key, key)(); next != nil; _, sg, next = next() {
 			part = append(part, sg)
 		}
 		return part, p_it
@@ -226,7 +224,7 @@ func joinParts(pits []partitionIterator) (p_it partitionIterator) {
 }
 
 type Collectors struct {
-	trees []*bptree.BpTree
+	trees []store.SubGraphs
 	chs []chan<- *labelGraph
 }
 
@@ -235,19 +233,17 @@ type labelGraph struct {
 	sg *goiso.SubGraph
 }
 
-func collector(tree *bptree.BpTree, in <-chan *labelGraph) {
+func collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	for lg := range in {
-		if err := tree.Add(types.ByteSlice(lg.label), lg.sg); err != nil {
-			panic(err)
-		}
+		tree.Add(lg.label, lg.sg)
 	}
 }
 
 func makeCollectors(N int) *Collectors {
-	trees := make([]*bptree.BpTree, 0, N)
+	trees := make([]store.SubGraphs, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
 	for i := 0; i < N; i++ {
-		tree := bptree.NewBpTree(TREESIZE)
+		tree := store.NewMemBpTree(TREESIZE)
 		ch := make(chan *labelGraph)
 		trees = append(trees, tree)
 		chs = append(chs, ch)
@@ -272,7 +268,7 @@ func (c *Collectors) partsCh() <-chan []*goiso.SubGraph {
 	out := make(chan []*goiso.SubGraph)
 	done := make(chan bool)
 	for _, tree := range c.trees {
-		go func(tree *bptree.BpTree) {
+		go func(tree store.SubGraphs) {
 			for part, next := makePartitions(tree)(); next != nil; part, next = next() {
 				out <- part
 			}
