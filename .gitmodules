@@ -7,3 +7,6 @@
 [submodule "src/github.com/timtadh/data-structures"]
 	path = src/github.com/timtadh/data-structures
 	url = git@github.com:timtadh/data-structures
+[submodule "src/github.com/timtadh/fs2"]
+	path = src/github.com/timtadh/fs2
+	url = git@github.com:timtadh/fs2.git
