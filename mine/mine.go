@@ -190,7 +190,7 @@ func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
 		if keys == nil {
 			return nil, nil
 		}
-		for _, sg, next := sgs.Range(key, key)(); next != nil; _, sg, next = next() {
+		for _, sg, next := sgs.Find(key)(); next != nil; _, sg, next = next() {
 			part = append(part, sg)
 		}
 		return part, p_it

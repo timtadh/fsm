@@ -85,11 +85,6 @@ func (self *MemBpTree) kvIter(kvi types.KVIterator) (it Iterator) {
 	return it
 }
 
-func (self *MemBpTree) Range(from, to []byte) (it Iterator) {
-	bpt := (*bptree.BpTree)(self)
-	return self.kvIter(bpt.Range(types.ByteSlice(from), types.ByteSlice(to)))
-}
-
 func (self *MemBpTree) Find(key []byte) Iterator {
 	bpt := (*bptree.BpTree)(self)
 	return self.kvIter(bpt.Find(types.ByteSlice(key)))

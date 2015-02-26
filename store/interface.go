@@ -14,7 +14,6 @@ type SubGraphsOperable interface {
 	Has(key []byte) bool
 	Count(key []byte) int
 	Add(key []byte, value *goiso.SubGraph)
-	Range(from, to []byte) Iterator
 	Find(key []byte) Iterator
 	Remove(key []byte, where func(*goiso.SubGraph) bool) error
 }
