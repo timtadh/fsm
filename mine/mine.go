@@ -36,8 +36,6 @@ import (
 	"github.com/timtadh/goiso"
 )
 
-const TREESIZE = 127
-
 type partitionIterator func() (part []*goiso.SubGraph, next partitionIterator)
 
 type Miner struct {
@@ -45,17 +43,18 @@ type Miner struct {
 	Support int
 	MinVertices int
 	Report chan<- *goiso.SubGraph
+	MakeStore func() store.SubGraphs
 }
 
-func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
+func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs) <-chan *goiso.SubGraph {
 	CPUs := runtime.NumCPU()
 	fsg := make(chan *goiso.SubGraph)
-	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg}
+	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg, MakeStore: makeStore}
 	miner := func() {
 		p_it := m.initial()
 		round := 1
 		for true {
-			collectors := makeCollectors(CPUs)
+			collectors := m.makeCollectors(CPUs)
 			log.Printf("starting filtering %v", round)
 			m.filterAndExtend(CPUs*4, p_it, func(sg *goiso.SubGraph) {
 				collectors.send(sg)
@@ -79,7 +78,7 @@ func Mine(G *goiso.Graph, support, minpat int) <-chan *goiso.SubGraph {
 
 func (m *Miner) initial() <-chan []*goiso.SubGraph {
 	CPUs := runtime.NumCPU()
-	collectors := makeCollectors(CPUs)
+	collectors := m.makeCollectors(CPUs)
 	m.Initial(func(sg *goiso.SubGraph) {
 		collectors.send(sg)
 	})
@@ -239,11 +238,12 @@ func collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	}
 }
 
-func makeCollectors(N int) *Collectors {
+func (self *Miner) makeCollectors(N int) *Collectors {
+	N = 1
 	trees := make([]store.SubGraphs, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
 	for i := 0; i < N; i++ {
-		tree := store.NewMemBpTree(TREESIZE)
+		tree := self.MakeStore()
 		ch := make(chan *labelGraph)
 		trees = append(trees, tree)
 		chs = append(chs, ch)

@@ -98,4 +98,7 @@ func (self *MemBpTree) Remove(key []byte, where func(*goiso.SubGraph) bool) erro
 	})
 }
 
+func (self *MemBpTree) Delete() {
+	// nothing to do for the mem version
+}
 

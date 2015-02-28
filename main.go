@@ -43,6 +43,7 @@ import (
 import (
 	"github.com/timtadh/fsm/graph"
 	"github.com/timtadh/fsm/mine"
+	"github.com/timtadh/fsm/store"
 )
 
 func init() {
@@ -180,6 +181,7 @@ func main() {
 			"help",
 			"support=",
 			"min-vertices=",
+			"use-fs",
 		},
 	)
 	if err != nil {
@@ -189,6 +191,7 @@ func main() {
 
 	support := -1
 	min_vert := 5
+	useFs := false
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -197,6 +200,8 @@ func main() {
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			min_vert = ParseInt(oa.Arg())
+		case "--use-fs":
+			useFs = true
 		}
 	}
 
@@ -229,7 +234,24 @@ func main() {
 	}
 
 	log.Print("Loaded graph, starting mining")
-	for sg := range mine.Mine(G, support, min_vert) {
+	memMaker := func() store.SubGraphs {
+		return store.NewMemBpTree(127)
+	}
+
+	count := 0
+	fsMaker := func() store.SubGraphs {
+		name := fmt.Sprintf("fsm_bptree_%d", count)
+		count++
+		path := "/tmp/" + name
+		return store.NewFs2BpTree(G, path)
+	}
+	var maker func() store.SubGraphs
+	if useFs {
+		maker = fsMaker
+	} else {
+		maker = memMaker
+	}
+	for sg := range mine.Mine(G, support, min_vert, maker) {
 		fmt.Println(sg)
 	}
 }

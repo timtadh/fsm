@@ -87,6 +87,7 @@ type Fs2BpTree struct {
 	g *goiso.Graph
 	bf *fmap.BlockFile
 	bpt *bptree.BpTree
+	kset *set.SortedSet
 }
 
 func NewFs2BpTree(g *goiso.Graph, path string) *Fs2BpTree {
@@ -98,6 +99,7 @@ func NewFs2BpTree(g *goiso.Graph, path string) *Fs2BpTree {
 		g: g,
 		bf: bf,
 		bpt: bpt,
+		kset: set.NewSortedSet(500),
 	}
 }
 
@@ -109,9 +111,8 @@ func (self *Fs2BpTree) Keys() (it BytesIterator) {
 	var curBKey []byte
 	kset := set.NewSortedSet(10)
 	kvi, err := self.bpt.Iterate()
-	if err != nil {
-		log.Fatal(err)
-	}
+	assert_ok(err)
+	i := 0
 	it = func() ([]byte, BytesIterator) {
 		var valBytes []byte
 		var err error
@@ -119,9 +120,7 @@ func (self *Fs2BpTree) Keys() (it BytesIterator) {
 		var key []byte
 		for key == nil || kset.Has(types.ByteSlice(key)) {
 			bkey, valBytes, err, kvi = kvi()
-			if err != nil {
-				log.Fatal(err)
-			}
+			assert_ok(err)
 			if kvi == nil {
 				return nil, nil
 			}
@@ -130,12 +129,16 @@ func (self *Fs2BpTree) Keys() (it BytesIterator) {
 				curBKey = bkey
 				kset = set.NewSortedSet(10)
 				err := kset.Add(types.ByteSlice(key))
-				if err != nil {
-					log.Fatal(err)
-				}
+				assert_ok(err)
+				i++
+				// log.Println("get", self.bf.Path(), key, i)
 				return key, it
 			}
 		}
+		err = kset.Add(types.ByteSlice(key))
+		assert_ok(err)
+		i++
+		// log.Println("get", self.bf.Path(), key, i)
 		return key, it
 	}
 	return it
@@ -143,9 +146,7 @@ func (self *Fs2BpTree) Keys() (it BytesIterator) {
 
 func (self *Fs2BpTree) Values() (it SGIterator) {
 	kvi, err := self.bpt.Iterate()
-	if err != nil {
-		log.Fatal(err)
-	}
+	assert_ok(err)
 	raw := self.kvIter(kvi)
 	it = func() (v *goiso.SubGraph, _ SGIterator) {
 		_, v, raw = raw()
@@ -159,9 +160,7 @@ func (self *Fs2BpTree) Values() (it SGIterator) {
 
 func (self *Fs2BpTree) Iterate() (it Iterator) {
 	kvi, err := self.bpt.Iterate()
-	if err != nil {
-		log.Fatal(err)
-	}
+	assert_ok(err)
 	return self.kvIter(kvi)
 }
 
@@ -181,6 +180,11 @@ func (self *Fs2BpTree) Add(key []byte, sg *goiso.SubGraph) {
 	bkey := bhash(hash(key))
 	val := serialize(key, sg)
 	assert_ok(self.bpt.Add(bkey, val))
+	if !self.kset.Has(types.ByteSlice(key)) {
+		err := self.kset.Add(types.ByteSlice(key))
+		assert_ok(err)
+		// log.Println("add", self.bf.Path(), key, self.kset.Size())
+	}
 }
 
 func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
@@ -188,9 +192,8 @@ func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
 		var bytes []byte
 		var err error
 		_, bytes, err, kvi = kvi()
-		if err != nil {
-			log.Fatal(err)
-		}
+		// log.Println("kv iter", bytes, err, kvi)
+		assert_ok(err)
 		if kvi == nil {
 			return nil, nil, nil
 		}
@@ -201,18 +204,18 @@ func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
 }
 
 func (self *Fs2BpTree) Find(key []byte) (it Iterator) {
-	kvi, err := self.bpt.Find(key)
-	if err != nil {
-		log.Fatal(err)
-	}
+	kvi, err := self.bpt.Find(bhash(hash(key)))
+	assert_ok(err)
 	raw := self.kvIter(kvi)
 	it = func() (k []byte, v *goiso.SubGraph, _ Iterator) {
 		for k == nil || !bytes.Equal(key, k) {
 			k, v, raw = raw()
+			// log.Println("found iter", key, k, raw)
 			if raw == nil {
 				return nil, nil, nil
 			}
 		}
+		// log.Println("found", k, v)
 		return k, v, it
 	}
 	return it
@@ -224,6 +227,13 @@ func (self *Fs2BpTree) Remove(key []byte, where func(*goiso.SubGraph) bool) erro
 		_, sg := deserialize(self.g, bytes)
 		return where(sg)
 	})
+}
+
+func (self *Fs2BpTree) Delete() {
+	err := self.bf.Close()
+	assert_ok(err)
+	err = self.bf.Remove()
+	assert_ok(err)
 }
 
 

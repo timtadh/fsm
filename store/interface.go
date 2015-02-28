@@ -22,6 +22,7 @@ type SubGraphs interface {
 	SubGraphsIterable
 	SubGraphsOperable
 	Size() int
+	Delete()
 }
 
 type SGIterator func() (*goiso.SubGraph, SGIterator)
