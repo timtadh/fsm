@@ -290,12 +290,6 @@ func (c *Collectors) partsCh() <-chan store.Iterator {
 		}
 		close(out)
 		close(done)
-		/*
-		time.Sleep(10 * time.Second)
-		for _, bpt := range c.trees {
-			bpt.Delete()
-		}
-		*/
 	}()
 	return out
 }
