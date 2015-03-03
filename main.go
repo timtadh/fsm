@@ -67,6 +67,8 @@ Options
     -s, --support=<int>                 number of unique embeddings (required)
     -m, --min-vertices=<int>            minimum number of nodes to report
                                         (5 by default)
+    -c, --cache=<path>                  use an on disk cache. put the cache files
+                                        in the given directory.
 
 Specs
     <graphs>                            path to graph files
@@ -171,6 +173,20 @@ func ParseInt(str string) int {
 	return i
 }
 
+func AssertDir(dir string) string {
+	dir = path.Clean(dir)
+	fi, err := os.Stat(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, err.Error())
+		Usage(ErrorCodes["baddir"])
+	}
+	if !fi.IsDir() {
+		fmt.Fprintf(os.Stderr, "Passed in file was not a directory, %s", dir)
+		Usage(ErrorCodes["baddir"])
+	}
+	return dir
+}
+
 func main() {
 
 	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
@@ -181,7 +197,7 @@ func main() {
 			"help",
 			"support=",
 			"min-vertices=",
-			"use-fs",
+			"cache=",
 		},
 	)
 	if err != nil {
@@ -191,7 +207,7 @@ func main() {
 
 	support := -1
 	min_vert := 5
-	useFs := false
+	cache := ""
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -200,8 +216,8 @@ func main() {
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			min_vert = ParseInt(oa.Arg())
-		case "--use-fs":
-			useFs = true
+		case "--cache":
+			cache = AssertDir(oa.Arg())
 		}
 	}
 
@@ -242,11 +258,11 @@ func main() {
 	fsMaker := func() store.SubGraphs {
 		name := fmt.Sprintf("fsm_bptree_%d", count)
 		count++
-		path := "/tmp/" + name
+		path := path.Join(cache, name)
 		return store.NewFs2BpTree(G, path)
 	}
 	var maker func() store.SubGraphs
-	if useFs {
+	if cache != "" {
 		maker = fsMaker
 	} else {
 		maker = memMaker

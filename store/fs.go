@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"hash/fnv"
 	"log"
+	"sync"
 )
 
 import(
@@ -87,7 +88,7 @@ type Fs2BpTree struct {
 	g *goiso.Graph
 	bf *fmap.BlockFile
 	bpt *bptree.BpTree
-	kset *set.SortedSet
+	mutex sync.Mutex
 }
 
 func NewFs2BpTree(g *goiso.Graph, path string) *Fs2BpTree {
@@ -99,21 +100,26 @@ func NewFs2BpTree(g *goiso.Graph, path string) *Fs2BpTree {
 		g: g,
 		bf: bf,
 		bpt: bpt,
-		kset: set.NewSortedSet(500),
 	}
 }
 
 func (self *Fs2BpTree) Size() int {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return self.bpt.Size()
 }
 
 func (self *Fs2BpTree) Keys() (it BytesIterator) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	var curBKey []byte
 	kset := set.NewSortedSet(10)
 	kvi, err := self.bpt.Iterate()
 	assert_ok(err)
 	i := 0
 	it = func() ([]byte, BytesIterator) {
+		self.mutex.Lock()
+		defer self.mutex.Unlock()
 		var valBytes []byte
 		var err error
 		var bkey []byte
@@ -145,6 +151,8 @@ func (self *Fs2BpTree) Keys() (it BytesIterator) {
 }
 
 func (self *Fs2BpTree) Values() (it SGIterator) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	kvi, err := self.bpt.Iterate()
 	assert_ok(err)
 	raw := self.kvIter(kvi)
@@ -159,36 +167,41 @@ func (self *Fs2BpTree) Values() (it SGIterator) {
 }
 
 func (self *Fs2BpTree) Iterate() (it Iterator) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	kvi, err := self.bpt.Iterate()
 	assert_ok(err)
 	return self.kvIter(kvi)
 }
 
 func (self *Fs2BpTree) Has(key []byte) bool {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	has, err := self.bpt.Has(bhash(hash(key)))
 	assert_ok(err)
 	return has
 }
 
 func (self *Fs2BpTree) Count(key []byte) int {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	count, err := self.bpt.Count(bhash(hash(key)))
 	assert_ok(err)
 	return count
 }
 
 func (self *Fs2BpTree) Add(key []byte, sg *goiso.SubGraph) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	bkey := bhash(hash(key))
 	val := serialize(key, sg)
 	assert_ok(self.bpt.Add(bkey, val))
-	if !self.kset.Has(types.ByteSlice(key)) {
-		err := self.kset.Add(types.ByteSlice(key))
-		assert_ok(err)
-		// log.Println("add", self.bf.Path(), key, self.kset.Size())
-	}
 }
 
 func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
 	it = func() ([]byte, *goiso.SubGraph, Iterator) {
+		self.mutex.Lock()
+		defer self.mutex.Unlock()
 		var bytes []byte
 		var err error
 		_, bytes, err, kvi = kvi()
@@ -204,6 +217,8 @@ func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
 }
 
 func (self *Fs2BpTree) Find(key []byte) (it Iterator) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	kvi, err := self.bpt.Find(bhash(hash(key)))
 	assert_ok(err)
 	raw := self.kvIter(kvi)
@@ -222,6 +237,8 @@ func (self *Fs2BpTree) Find(key []byte) (it Iterator) {
 }
 
 func (self *Fs2BpTree) Remove(key []byte, where func(*goiso.SubGraph) bool) error {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	bkey := bhash(hash(key))
 	return self.bpt.Remove(bkey, func(bytes []byte) bool {
 		_, sg := deserialize(self.g, bytes)
@@ -230,6 +247,8 @@ func (self *Fs2BpTree) Remove(key []byte, where func(*goiso.SubGraph) bool) erro
 }
 
 func (self *Fs2BpTree) Delete() {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	err := self.bf.Close()
 	assert_ok(err)
 	err = self.bf.Remove()

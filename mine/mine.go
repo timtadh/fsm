@@ -36,7 +36,7 @@ import (
 	"github.com/timtadh/goiso"
 )
 
-type partitionIterator func() (part []*goiso.SubGraph, next partitionIterator)
+type partitionIterator func() (part store.Iterator, next partitionIterator)
 
 type Miner struct {
 	Graph *goiso.Graph
@@ -76,7 +76,7 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs)
 	return fsg
 }
 
-func (m *Miner) initial() <-chan []*goiso.SubGraph {
+func (m *Miner) initial() <-chan store.Iterator {
 	CPUs := runtime.NumCPU()
 	collectors := m.makeCollectors(CPUs)
 	m.Initial(func(sg *goiso.SubGraph) {
@@ -109,10 +109,16 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 	return s
 }
 
-func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
-	vids := set.NewSortedSet(len(sgs))
-	non_overlapping := make([]*goiso.SubGraph, 0, len(sgs))
-	for _, sg := range sgs {
+func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
+	vids := set.NewSortedSet(100)
+	non_overlapping := make([]*goiso.SubGraph, 0, 100)
+	i := 0
+	var sg *goiso.SubGraph
+	for _, sg, sgs = sgs(); sgs != nil; _, sg, sgs = sgs() {
+		if i > m.Support*100 {
+			// skip super big groups as nonOverlapping takes for ever
+			return nil
+		}
 		s := vertexSet(sg)
 		if !vids.Overlap(s) {
 			non_overlapping = append(non_overlapping, sg)
@@ -123,11 +129,12 @@ func nonOverlapping(sgs []*goiso.SubGraph) []*goiso.SubGraph {
 				}
 			}
 		}
+		i++
 	}
 	return non_overlapping
 }
 
-func (m *Miner) filterAndExtend(N int, parts <-chan []*goiso.SubGraph, send func(*goiso.SubGraph)) {
+func (m *Miner) filterAndExtend(N int, parts <-chan store.Iterator, send func(*goiso.SubGraph)) {
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
 		go m.worker(parts, send, done)
@@ -138,7 +145,7 @@ func (m *Miner) filterAndExtend(N int, parts <-chan []*goiso.SubGraph, send func
 	close(done)
 }
 
-func (m *Miner) worker(in <-chan []*goiso.SubGraph, send func(*goiso.SubGraph), done chan<- bool) {
+func (m *Miner) worker(in <-chan store.Iterator, send func(*goiso.SubGraph), done chan<- bool) {
 	for part := range in {
 		m.do_filter(part, func(sg *goiso.SubGraph) {
 			m.do_extend(sg, send)
@@ -147,17 +154,10 @@ func (m *Miner) worker(in <-chan []*goiso.SubGraph, send func(*goiso.SubGraph), 
 	done <- true
 }
 
-func (m *Miner) do_filter(part []*goiso.SubGraph, send func(*goiso.SubGraph)) {
-	if len(part) < m.Support {
-		return
-	}
-	if len(part) > m.Support*100 {
-		// skip super big groups as nonOverlapping takes for ever
-		return
-	}
-	part = nonOverlapping(part)
-	if len(part) >= m.Support {
-		for _, sg := range part {
+func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
+	non_overlapping := m.nonOverlapping(part)
+	if len(non_overlapping) >= m.Support {
+		for _, sg := range non_overlapping {
 			if len(sg.V) > m.MinVertices {
 				m.Report<-sg
 			}
@@ -183,16 +183,13 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 
 func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
 	keys := sgs.Keys()
-	p_it = func() (part []*goiso.SubGraph, next partitionIterator) {
+	p_it = func() (part store.Iterator, next partitionIterator) {
 		var key []byte
 		key, keys = keys()
 		if keys == nil {
 			return nil, nil
 		}
-		for _, sg, next := sgs.Find(key)(); next != nil; _, sg, next = next() {
-			part = append(part, sg)
-		}
-		return part, p_it
+		return sgs.Find(key), p_it
 	}
 	return p_it
 }
@@ -206,7 +203,7 @@ func joinParts(pits []partitionIterator) (p_it partitionIterator) {
 		return pits
 	}
 	i := 0
-	p_it = func() (part []*goiso.SubGraph, next partitionIterator) {
+	p_it = func() (part store.Iterator, next partitionIterator) {
 		part, pits[i] = pits[i]()
 		for pits[i] == nil {
 			pits = remove(i, pits)
@@ -239,7 +236,6 @@ func collector(tree store.SubGraphs, in <-chan *labelGraph) {
 }
 
 func (self *Miner) makeCollectors(N int) *Collectors {
-	N = 1
 	trees := make([]store.SubGraphs, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
 	for i := 0; i < N; i++ {
@@ -264,8 +260,8 @@ func hash(bytes []byte) int {
 	return int(h.Sum32())
 }
 
-func (c *Collectors) partsCh() <-chan []*goiso.SubGraph {
-	out := make(chan []*goiso.SubGraph)
+func (c *Collectors) partsCh() <-chan store.Iterator {
+	out := make(chan store.Iterator)
 	done := make(chan bool)
 	for _, tree := range c.trees {
 		go func(tree store.SubGraphs) {
@@ -281,6 +277,12 @@ func (c *Collectors) partsCh() <-chan []*goiso.SubGraph {
 		}
 		close(out)
 		close(done)
+		/*
+		time.Sleep(10 * time.Second)
+		for _, bpt := range c.trees {
+			bpt.Delete()
+		}
+		*/
 	}()
 	return out
 }
