@@ -25,8 +25,11 @@ package mine
 
 import (
 	"hash/fnv"
+	"io"
 	"log"
 	"runtime"
+	"runtime/pprof"
+	"sync"
 )
 
 import (
@@ -46,10 +49,12 @@ type Miner struct {
 	MakeStore func() store.SubGraphs
 }
 
-func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs) <-chan *goiso.SubGraph {
+func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *goiso.SubGraph {
 	CPUs := runtime.NumCPU()
 	fsg := make(chan *goiso.SubGraph)
 	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg, MakeStore: makeStore}
+	var profMutex sync.Mutex
+	profCount := 0
 	miner := func() {
 		p_it := m.initial()
 		round := 1
@@ -57,6 +62,14 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs)
 			collectors := m.makeCollectors(CPUs)
 			log.Printf("starting filtering %v", round)
 			m.filterAndExtend(CPUs*4, p_it, func(sg *goiso.SubGraph) {
+				if memProf != nil {
+					profMutex.Lock()
+					profCount += 1
+					if profCount % 100 == 0 {
+						pprof.WriteHeapProfile(memProf)
+					}
+					profMutex.Unlock()
+				}
 				collectors.send(sg)
 			})
 			collectors.close()

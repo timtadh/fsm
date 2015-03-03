@@ -32,6 +32,7 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 )
@@ -56,6 +57,7 @@ var ErrorCodes map[string]int = map[string]int{
 	"opts":    3,
 	"badint":  5,
 	"baddir":  6,
+	"badfile": 7,
 }
 
 var UsageMessage string = "fsm [options] -s <support> <graphs>"
@@ -69,6 +71,8 @@ Options
                                         (5 by default)
     -c, --cache=<path>                  use an on disk cache. put the cache files
                                         in the given directory.
+    --mem-profile=<path>                do a memory profile
+    --cpu-profile=<path>                do a cpu profile
 
 Specs
     <graphs>                            path to graph files
@@ -187,6 +191,21 @@ func AssertDir(dir string) string {
 	return dir
 }
 
+func AssertFile(fname string) string {
+	fname = path.Clean(fname)
+	fi, err := os.Stat(fname)
+	if err != nil && os.IsNotExist(err) {
+		return fname
+	} else if err != nil {
+		fmt.Fprintf(os.Stderr, err.Error())
+		Usage(ErrorCodes["badfile"])
+	} else if fi.IsDir() {
+		fmt.Fprintf(os.Stderr, "Passed in file was a directory, %s", fname)
+		Usage(ErrorCodes["badfile"])
+	}
+	return fname
+}
+
 func main() {
 
 	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
@@ -198,6 +217,8 @@ func main() {
 			"support=",
 			"min-vertices=",
 			"cache=",
+			"mem-profile=",
+			"cpu-profile=",
 		},
 	)
 	if err != nil {
@@ -206,8 +227,10 @@ func main() {
 	}
 
 	support := -1
-	min_vert := 5
+	minVert := 5
 	cache := ""
+	memProfile := ""
+	cpuProfile := ""
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -215,9 +238,13 @@ func main() {
 		case "-s", "--support":
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
-			min_vert = ParseInt(oa.Arg())
+			minVert = ParseInt(oa.Arg())
 		case "--cache":
 			cache = AssertDir(oa.Arg())
+		case "--mem-profile":
+			memProfile = AssertFile(oa.Arg())
+		case "--cpu-profile":
+			cpuProfile = AssertFile(oa.Arg())
 		}
 	}
 
@@ -254,6 +281,7 @@ func main() {
 		return store.NewMemBpTree(127)
 	}
 
+
 	count := 0
 	fsMaker := func() store.SubGraphs {
 		name := fmt.Sprintf("fsm_bptree_%d", count)
@@ -267,7 +295,32 @@ func main() {
 	} else {
 		maker = memMaker
 	}
-	for sg := range mine.Mine(G, support, min_vert, maker) {
+
+	
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+		err = pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	var memProfFile io.WriteCloser
+	if memProfile != "" {
+		f, err := os.Create(memProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		memProfFile = f
+		defer f.Close()
+	}
+
+	for sg := range mine.Mine(G, support, minVert, maker, memProfFile) {
 		fmt.Println(sg)
 	}
 }
