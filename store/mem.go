@@ -1,10 +1,38 @@
 package store
 
 import (
+	"github.com/timtadh/data-structures/hashtable"
 	"github.com/timtadh/data-structures/tree/bptree"
 	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/goiso"
 )
+
+type MemKeys hashtable.LinearHash
+
+func NewMemKeys() *MemKeys {
+	return (*MemKeys)(hashtable.NewLinearHash())
+}
+
+func (mk *MemKeys) Put(key []byte) {
+	h := (*hashtable.LinearHash)(mk)
+	err := h.Put(types.ByteSlice(key), nil)
+	assert_ok(err)
+}
+
+func (mk *MemKeys) Keys() (it BytesIterator) {
+	h := (*hashtable.LinearHash)(mk)
+	keys := h.Keys()
+	it = func() ([]byte, BytesIterator) {
+		var key types.Equatable
+		key, keys = keys()
+		if keys == nil {
+			return nil, nil
+		}
+		k := []byte(key.(types.ByteSlice))
+		return k, it
+	}
+	return it
+}
 
 type MemBpTree bptree.BpTree
 

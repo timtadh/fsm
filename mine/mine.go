@@ -207,32 +207,10 @@ func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
 	return p_it
 }
 
-func joinParts(pits []partitionIterator) (p_it partitionIterator) {
-	remove := func(i int, pits []partitionIterator) []partitionIterator {
-		for j := i; j+1 < len(pits); j++ {
-			pits[j] = pits[j+1]
-		}
-		pits = pits[:len(pits)-1]
-		return pits
-	}
-	i := 0
-	p_it = func() (part store.Iterator, next partitionIterator) {
-		part, pits[i] = pits[i]()
-		for pits[i] == nil {
-			pits = remove(i, pits)
-			if len(pits) <= 0 {
-				return nil, nil
-			}
-			i = i % len(pits)
-			part, pits[i] = pits[i]()
-		}
-		i = (i + 1) % len(pits)
-		return part, p_it
-	}
-	return p_it
-}
-
 type Collectors struct {
+	keys store.Keys
+	keysCh chan<- []byte
+	done <-chan bool
 	trees []store.SubGraphs
 	chs []chan<- *labelGraph
 }
@@ -242,13 +220,25 @@ type labelGraph struct {
 	sg *goiso.SubGraph
 }
 
-func collector(tree store.SubGraphs, in <-chan *labelGraph) {
+func collector(tree store.SubGraphs, done chan<- bool, keys chan<- []byte, in <-chan *labelGraph) {
 	for lg := range in {
 		tree.Add(lg.label, lg.sg)
+		// keys<-lg.label
+	}
+	done<-true
+}
+
+func collectKeys(keys store.Keys, in <-chan []byte) {
+	for key := range in {
+		keys.Put(key)
 	}
 }
 
 func (self *Miner) makeCollectors(N int) *Collectors {
+	keys := store.NewMemKeys()
+	keysCh := make(chan []byte)
+	done := make(chan bool)
+	go collectKeys(keys, keysCh)
 	trees := make([]store.SubGraphs, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
 	for i := 0; i < N; i++ {
@@ -256,14 +246,22 @@ func (self *Miner) makeCollectors(N int) *Collectors {
 		ch := make(chan *labelGraph)
 		trees = append(trees, tree)
 		chs = append(chs, ch)
-		go collector(tree, ch)
+		go collector(tree, done, keysCh, ch)
 	}
-	return &Collectors{trees, chs}
+	return &Collectors{keys, keysCh, done, trees, chs}
 }
 
 func (c *Collectors) close() {
 	for _, ch := range c.chs {
 		close(ch)
+		<-c.done
+	}
+	close(c.keysCh)
+}
+
+func (c *Collectors) delete() {
+	for _, t := range c.trees {
+		t.Delete()
 	}
 }
 
@@ -292,14 +290,6 @@ func (c *Collectors) partsCh() <-chan store.Iterator {
 		close(done)
 	}()
 	return out
-}
-
-func (c *Collectors) partitions() partitionIterator {
-	parts := make([]partitionIterator, 0, len(c.trees))
-	for _, tree := range c.trees {
-		parts = append(parts, makePartitions(tree))
-	}
-	return joinParts(parts)
 }
 
 func (c *Collectors) send(sg *goiso.SubGraph) {
