@@ -29,6 +29,7 @@ import (
 	"log"
 	"runtime"
 	"runtime/pprof"
+	"time"
 	"sync"
 )
 
@@ -52,6 +53,12 @@ type Miner struct {
 func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *goiso.SubGraph {
 	CPUs := runtime.NumCPU()
 	fsg := make(chan *goiso.SubGraph)
+	ticker := time.NewTicker(10 * time.Second)
+	go func(ch <-chan time.Time) {
+		for _ = range ch {
+			runtime.GC()
+		}
+	}(ticker.C)
 	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg, MakeStore: makeStore}
 	var profMutex sync.Mutex
 	miner := func() {
@@ -90,6 +97,7 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 		if collectors != nil {
 			collectors.delete()
 		}
+		ticker.Stop()
 		close(m.Report)
 	}
 	go miner()

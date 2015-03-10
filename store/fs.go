@@ -206,6 +206,7 @@ func (self *Fs2BpTree) Add(key []byte, sg *goiso.SubGraph) {
 	bkey := bhash(hash(key))
 	val := serialize(key, sg)
 	assert_ok(self.bpt.Add(bkey, val))
+	assert_ok(self.bf.Sync())
 }
 
 func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
