@@ -54,22 +54,18 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 	fsg := make(chan *goiso.SubGraph)
 	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg, MakeStore: makeStore}
 	var profMutex sync.Mutex
-	profCount := 0
 	miner := func() {
-		p_it := m.initial()
+		p_it, collectors := m.initial()
 		round := 1
+		var pc *Collectors
 		for true {
-			collectors := m.makeCollectors(CPUs)
+			if pc != nil {
+				go pc.delete()
+			}
+			pc = collectors
+			collectors = m.makeCollectors(1)
 			log.Printf("starting filtering %v", round)
 			m.filterAndExtend(CPUs*4, p_it, func(sg *goiso.SubGraph) {
-				if memProf != nil {
-					profMutex.Lock()
-					profCount += 1
-					if profCount % 100 == 0 {
-						pprof.WriteHeapProfile(memProf)
-					}
-					profMutex.Unlock()
-				}
 				collectors.send(sg)
 			})
 			collectors.close()
@@ -82,6 +78,17 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 			log.Printf("finished %v with %v", round, size)
 			log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 			round++
+			if memProf != nil {
+				profMutex.Lock()
+				pprof.WriteHeapProfile(memProf)
+				profMutex.Unlock()
+			}
+		}
+		if pc != nil {
+			pc.delete()
+		}
+		if collectors != nil {
+			collectors.delete()
 		}
 		close(m.Report)
 	}
@@ -89,14 +96,14 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 	return fsg
 }
 
-func (m *Miner) initial() <-chan store.Iterator {
-	CPUs := runtime.NumCPU()
-	collectors := m.makeCollectors(CPUs)
+func (m *Miner) initial() (<-chan store.Iterator, *Collectors) {
+	// CPUs := runtime.NumCPU()
+	collectors := m.makeCollectors(1)
 	m.Initial(func(sg *goiso.SubGraph) {
 		collectors.send(sg)
 	})
 	collectors.close()
-	return collectors.partsCh()
+	return collectors.partsCh(), collectors
 }
 
 func (m *Miner) Initial(send func(*goiso.SubGraph)) {
@@ -264,6 +271,12 @@ func (self *Miner) makeCollectors(N int) *Collectors {
 func (c *Collectors) close() {
 	for _, ch := range c.chs {
 		close(ch)
+	}
+}
+
+func (c *Collectors) delete() {
+	for _, bpt := range c.trees {
+		bpt.Delete()
 	}
 }
 

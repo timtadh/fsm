@@ -91,9 +91,19 @@ type Fs2BpTree struct {
 	mutex sync.Mutex
 }
 
+func AnonFs2BpTree(g *goiso.Graph) *Fs2BpTree {
+	bf, err := fmap.Anonymous(fmap.BLOCKSIZE)
+	assert_ok(err)
+	return newFs2BpTree(g, bf)
+}
+
 func NewFs2BpTree(g *goiso.Graph, path string) *Fs2BpTree {
 	bf, err := fmap.CreateBlockFile(path)
 	assert_ok(err)
+	return newFs2BpTree(g, bf)
+}
+
+func newFs2BpTree(g *goiso.Graph, bf *fmap.BlockFile) *Fs2BpTree {
 	bpt, err := bptree.New(bf, 8)
 	assert_ok(err)
 	return &Fs2BpTree {
@@ -251,8 +261,10 @@ func (self *Fs2BpTree) Delete() {
 	defer self.mutex.Unlock()
 	err := self.bf.Close()
 	assert_ok(err)
-	err = self.bf.Remove()
-	assert_ok(err)
+	if self.bf.Path() != "" {
+		err = self.bf.Remove()
+		assert_ok(err)
+	}
 }
 
 

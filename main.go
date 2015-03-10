@@ -71,6 +71,9 @@ Options
                                         (5 by default)
     -c, --cache=<path>                  use an on disk cache. put the cache files
                                         in the given directory.
+    --mem-cache                         use an anonymous memmory mapped cache.
+                                        similar to the --cache option but doesn't
+                                        create any files. relies on swap.
     --mem-profile=<path>                do a memory profile
     --cpu-profile=<path>                do a cpu profile
 
@@ -217,6 +220,7 @@ func main() {
 			"support=",
 			"min-vertices=",
 			"cache=",
+			"mem-cache",
 			"mem-profile=",
 			"cpu-profile=",
 		},
@@ -229,6 +233,7 @@ func main() {
 	support := -1
 	minVert := 5
 	cache := ""
+	memCache := false
 	memProfile := ""
 	cpuProfile := ""
 	for _, oa := range optargs {
@@ -241,6 +246,8 @@ func main() {
 			minVert = ParseInt(oa.Arg())
 		case "--cache":
 			cache = AssertDir(oa.Arg())
+		case "--mem-cache":
+			memCache = true
 		case "--mem-profile":
 			memProfile = AssertFile(oa.Arg())
 		case "--cpu-profile":
@@ -250,6 +257,11 @@ func main() {
 
 	if support < 1 {
 		fmt.Fprintf(os.Stderr, "You must supply a support greater than 0, you gave %v\n", support)
+		Usage(ErrorCodes["opts"])
+	}
+
+	if memCache && cache != "" {
+		fmt.Fprintf(os.Stderr, "You cannot supply both --cache and --mem-cache")
 		Usage(ErrorCodes["opts"])
 	}
 
@@ -281,7 +293,6 @@ func main() {
 		return store.NewMemBpTree(127)
 	}
 
-
 	count := 0
 	fsMaker := func() store.SubGraphs {
 		name := fmt.Sprintf("fsm_bptree_%d", count)
@@ -289,14 +300,20 @@ func main() {
 		path := path.Join(cache, name)
 		return store.NewFs2BpTree(G, path)
 	}
+
+	memFsMaker := func() store.SubGraphs {
+		return store.AnonFs2BpTree(G)
+	}
+
 	var maker func() store.SubGraphs
-	if cache != "" {
+	if memCache {
+		maker = memFsMaker
+	} else if cache != "" {
 		maker = fsMaker
 	} else {
 		maker = memMaker
 	}
 
-	
 	if cpuProfile != "" {
 		f, err := os.Create(cpuProfile)
 		if err != nil {
