@@ -72,9 +72,7 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 			pc = collectors
 			collectors = m.makeCollectors(1)
 			log.Printf("starting filtering %v", round)
-			m.filterAndExtend(CPUs*4, p_it, func(sg *goiso.SubGraph) {
-				collectors.send(sg)
-			})
+			m.filterAndExtend(CPUs*4, p_it, collectors.send)
 			collectors.close()
 			size := collectors.size() 
 			if size <= 0 {
@@ -138,8 +136,8 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 }
 
 func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
-	vids := set.NewSortedSet(100)
-	non_overlapping := make([]*goiso.SubGraph, 0, 100)
+	vids := set.NewSortedSet(m.Support*100 + 1)
+	non_overlapping := make([]*goiso.SubGraph, 0, m.Support*100 + 1)
 	i := 0
 	var sg *goiso.SubGraph
 	for _, sg, sgs = sgs(); sgs != nil; _, sg, sgs = sgs() {
