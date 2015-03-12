@@ -2,8 +2,10 @@ package store
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"sync"
 )
@@ -37,49 +39,64 @@ func bhash(key uint64) []byte {
 
 func serialize(key []byte, value *goiso.SubGraph) []byte {
 	val := value.Serialize()
-	bytes := make([]byte, 8 + len(key) + len(val))
-	binary.LittleEndian.PutUint32(bytes[0:4], uint32(len(key)))
-	binary.LittleEndian.PutUint32(bytes[4:8], uint32(len(val)))
+	b := make([]byte, 8 + len(key) + len(val))
+	binary.LittleEndian.PutUint32(b[0:4], uint32(len(key)))
+	binary.LittleEndian.PutUint32(b[4:8], uint32(len(val)))
 	off := 8
 	{
 		s := off
 		e := s + len(key)
-		copy(bytes[s:e], key)
+		copy(b[s:e], key)
 	}
 	off += len(key)
 	{
 		s := off
 		e := s + len(val)
-		copy(bytes[s:e], val)
+		copy(b[s:e], val)
 	}
-	return bytes
+	var buf bytes.Buffer
+	g := gzip.NewWriter(&buf)
+	_, err := g.Write(b)
+	assert_ok(err)
+	assert_ok(g.Close())
+	return buf.Bytes()
 }
 
-func deserializeKey(bytes []byte) (key []byte) {
-	lenK := binary.LittleEndian.Uint32(bytes[0:4])
+func deserializeKey(gzipBytes []byte) (key []byte) {
+	buf := bytes.NewBuffer(gzipBytes)
+	gz, err := gzip.NewReader(buf)
+	assert_ok(err)
+	b, err := ioutil.ReadAll(gz)
+	assert_ok(err)
+	lenK := binary.LittleEndian.Uint32(b[0:4])
 	off := 8
 	key = make([]byte, lenK)
 	s := off
 	e := s + len(key)
-	copy(key, bytes[s:e])
+	copy(key, b[s:e])
 	return key
 }
 
-func deserialize(g *goiso.Graph, bytes []byte) (key []byte, value *goiso.SubGraph) {
-	lenK := binary.LittleEndian.Uint32(bytes[0:4])
-	lenV := binary.LittleEndian.Uint32(bytes[4:8])
+func deserialize(g *goiso.Graph, gzipBytes []byte) (key []byte, value *goiso.SubGraph) {
+	buf := bytes.NewBuffer(gzipBytes)
+	gz, err := gzip.NewReader(buf)
+	assert_ok(err)
+	b, err := ioutil.ReadAll(gz)
+	assert_ok(err)
+	lenK := binary.LittleEndian.Uint32(b[0:4])
+	lenV := binary.LittleEndian.Uint32(b[4:8])
 	off := 8
 	key = make([]byte, lenK)
 	{
 		s := off
 		e := s + len(key)
-		copy(key, bytes[s:e])
+		copy(key, b[s:e])
 	}
 	off += len(key)
 	{
 		s := off
 		e := s + int(lenV)
-		value = goiso.DeserializeSubGraph(g, bytes[s:e])
+		value = goiso.DeserializeSubGraph(g, b[s:e])
 	}
 	return key, value
 }
