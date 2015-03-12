@@ -70,7 +70,7 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 				go pc.delete()
 			}
 			pc = collectors
-			collectors = m.makeCollectors(1)
+			collectors = m.makeCollectors(CPUs)
 			log.Printf("starting filtering %v", round)
 			m.filterAndExtend(CPUs*4, p_it, collectors.send)
 			collectors.close()
