@@ -67,7 +67,7 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 		var pc *Collectors
 		for true {
 			if pc != nil {
-				go pc.delete()
+				// go pc.delete()
 			}
 			pc = collectors
 			collectors = m.makeCollectors(1)
@@ -90,7 +90,7 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 			}
 		}
 		if pc != nil {
-			pc.delete()
+			// pc.delete()
 		}
 		if collectors != nil {
 			collectors.delete()
