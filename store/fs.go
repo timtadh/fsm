@@ -66,6 +66,8 @@ func (self *Fs2BpTree) Keys() (it BytesIterator) {
 	raw, err := self.bpt.Keys()
 	assert_ok(err)
 	it = func() (k []byte, _ BytesIterator) {
+		self.mutex.Lock()
+		defer self.mutex.Unlock()
 		var err error
 		k, err, raw = raw()
 		assert_ok(err)
@@ -84,6 +86,8 @@ func (self *Fs2BpTree) Values() (it SGIterator) {
 	assert_ok(err)
 	raw := self.kvIter(kvi)
 	it = func() (v *goiso.SubGraph, _ SGIterator) {
+		self.mutex.Lock()
+		defer self.mutex.Unlock()
 		_, v, raw = raw()
 		if raw == nil {
 			return nil, nil
