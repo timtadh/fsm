@@ -67,10 +67,10 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 		var pc *Collectors
 		for true {
 			if pc != nil {
-				go pc.delete()
+				pc.delete()
 			}
 			pc = collectors
-			collectors = m.makeCollectors(1)
+			collectors = m.makeCollectors(CPUs*2)
 			log.Printf("starting filtering %v", round)
 			m.filterAndExtend(CPUs*4, p_it, collectors.send)
 			collectors.close()
@@ -103,8 +103,8 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 }
 
 func (m *Miner) initial() (<-chan store.Iterator, *Collectors) {
-	// CPUs := runtime.NumCPU()
-	collectors := m.makeCollectors(1)
+	CPUs := runtime.NumCPU()
+	collectors := m.makeCollectors(CPUs)
 	m.Initial(func(sg *goiso.SubGraph) {
 		collectors.send(sg)
 	})
@@ -220,31 +220,6 @@ func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
 	return p_it
 }
 
-func joinParts(pits []partitionIterator) (p_it partitionIterator) {
-	remove := func(i int, pits []partitionIterator) []partitionIterator {
-		for j := i; j+1 < len(pits); j++ {
-			pits[j] = pits[j+1]
-		}
-		pits = pits[:len(pits)-1]
-		return pits
-	}
-	i := 0
-	p_it = func() (part store.Iterator, next partitionIterator) {
-		part, pits[i] = pits[i]()
-		for pits[i] == nil {
-			pits = remove(i, pits)
-			if len(pits) <= 0 {
-				return nil, nil
-			}
-			i = i % len(pits)
-			part, pits[i] = pits[i]()
-		}
-		i = (i + 1) % len(pits)
-		return part, p_it
-	}
-	return p_it
-}
-
 type Collectors struct {
 	trees []store.SubGraphs
 	chs []chan<- *labelGraph
@@ -311,14 +286,6 @@ func (c *Collectors) partsCh() <-chan store.Iterator {
 		close(done)
 	}()
 	return out
-}
-
-func (c *Collectors) partitions() partitionIterator {
-	parts := make([]partitionIterator, 0, len(c.trees))
-	for _, tree := range c.trees {
-		parts = append(parts, makePartitions(tree))
-	}
-	return joinParts(parts)
 }
 
 func (c *Collectors) send(sg *goiso.SubGraph) {
