@@ -3,7 +3,6 @@ package store
 import (
 	"github.com/timtadh/data-structures/tree/bptree"
 	"github.com/timtadh/data-structures/types"
-	"github.com/timtadh/goiso"
 )
 
 type MemBpTree bptree.BpTree
@@ -35,13 +34,13 @@ func (self *MemBpTree) Keys() (it BytesIterator) {
 func (self *MemBpTree) Values() (it SGIterator) {
 	bpt := (*bptree.BpTree)(self)
 	vals := bpt.Values()
-	it = func() (*goiso.SubGraph, SGIterator) {
+	it = func() (*ParentedSg, SGIterator) {
 		var val interface{}
 		val, vals = vals()
 		if vals == nil {
 			return nil, nil
 		}
-		v := val.(*goiso.SubGraph)
+		v := val.(*ParentedSg)
 		return v, it
 	}
 	return it
@@ -62,16 +61,16 @@ func (self *MemBpTree) Count(key []byte) int {
 	return bpt.Count(types.ByteSlice(key))
 }
 
-func (self *MemBpTree) Add(key []byte, sg *goiso.SubGraph) {
+func (self *MemBpTree) Add(key []byte, psg *ParentedSg) {
 	bpt := (*bptree.BpTree)(self)
-	err := bpt.Add(types.ByteSlice(key), sg)
+	err := bpt.Add(types.ByteSlice(key), psg)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func (self *MemBpTree) kvIter(kvi types.KVIterator) (it Iterator) {
-	it = func() ([]byte, *goiso.SubGraph, Iterator) {
+	it = func() ([]byte, *ParentedSg, Iterator) {
 		var key types.Equatable
 		var val interface{}
 		key, val, kvi = kvi()
@@ -79,7 +78,7 @@ func (self *MemBpTree) kvIter(kvi types.KVIterator) (it Iterator) {
 			return nil, nil, nil
 		}
 		k := []byte(key.(types.ByteSlice))
-		v := val.(*goiso.SubGraph)
+		v := val.(*ParentedSg)
 		return k, v, it
 	}
 	return it
@@ -90,10 +89,10 @@ func (self *MemBpTree) Find(key []byte) Iterator {
 	return self.kvIter(bpt.Find(types.ByteSlice(key)))
 }
 
-func (self *MemBpTree) Remove(key []byte, where func(*goiso.SubGraph) bool) error {
+func (self *MemBpTree) Remove(key []byte, where func(*ParentedSg) bool) error {
 	bpt := (*bptree.BpTree)(self)
 	return bpt.RemoveWhere(types.ByteSlice(key), func(val interface{}) bool {
-		v := val.(*goiso.SubGraph)
+		v := val.(*ParentedSg)
 		return where(v)
 	})
 }

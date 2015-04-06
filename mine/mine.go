@@ -46,13 +46,13 @@ type Miner struct {
 	Graph *goiso.Graph
 	Support int
 	MinVertices int
-	Report chan<- *goiso.SubGraph
+	Report chan<- *store.ParentedSg
 	MakeStore func() store.SubGraphs
 }
 
-func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *goiso.SubGraph {
+func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *store.ParentedSg {
 	CPUs := runtime.NumCPU()
-	fsg := make(chan *goiso.SubGraph)
+	fsg := make(chan *store.ParentedSg)
 	ticker := time.NewTicker(10 * time.Second)
 	go func(ch <-chan time.Time) {
 		for _ = range ch {
@@ -106,7 +106,7 @@ func (m *Miner) initial() (<-chan store.Iterator, *Collectors) {
 	CPUs := runtime.NumCPU()
 	collectors := m.makeCollectors(CPUs)
 	m.Initial(func(sg *goiso.SubGraph) {
-		collectors.send(sg)
+		collectors.send([]byte(""), sg)
 	})
 	collectors.close()
 	return collectors.partsCh(), collectors
@@ -135,19 +135,19 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 	return s
 }
 
-func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
+func (m *Miner) nonOverlapping(sgs store.Iterator) []*store.ParentedSg {
 	vids := set.NewSortedSet(m.Support*100 + 1)
-	non_overlapping := make([]*goiso.SubGraph, 0, m.Support*100 + 1)
+	non_overlapping := make([]*store.ParentedSg, 0, m.Support*100 + 1)
 	i := 0
-	var sg *goiso.SubGraph
-	for _, sg, sgs = sgs(); sgs != nil; _, sg, sgs = sgs() {
+	var psg *store.ParentedSg
+	for _, psg, sgs = sgs(); sgs != nil; _, psg, sgs = sgs() {
 		if i > m.Support*100 {
 			// skip super big groups as nonOverlapping takes for ever
 			return nil
 		}
-		s := vertexSet(sg)
+		s := vertexSet(psg.Sg)
 		if !vids.Overlap(s) {
-			non_overlapping = append(non_overlapping, sg)
+			non_overlapping = append(non_overlapping, psg)
 			for v, next := s.Items()(); next != nil; v, next = next() {
 				item := v.(types.Int)
 				if err := vids.Add(item); err != nil {
@@ -160,7 +160,7 @@ func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 	return non_overlapping
 }
 
-func (m *Miner) filterAndExtend(N int, parts <-chan store.Iterator, send func(*goiso.SubGraph)) {
+func (m *Miner) filterAndExtend(N int, parts <-chan store.Iterator, send func([]byte, *goiso.SubGraph)) {
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
 		go m.worker(parts, send, done)
@@ -171,7 +171,7 @@ func (m *Miner) filterAndExtend(N int, parts <-chan store.Iterator, send func(*g
 	close(done)
 }
 
-func (m *Miner) worker(in <-chan store.Iterator, send func(*goiso.SubGraph), done chan<- bool) {
+func (m *Miner) worker(in <-chan store.Iterator, send func([]byte, *goiso.SubGraph), done chan<- bool) {
 	for part := range in {
 		m.do_filter(part, func(sg *goiso.SubGraph) {
 			m.do_extend(sg, send)
@@ -183,16 +183,16 @@ func (m *Miner) worker(in <-chan store.Iterator, send func(*goiso.SubGraph), don
 func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
 	non_overlapping := m.nonOverlapping(part)
 	if len(non_overlapping) >= m.Support {
-		for _, sg := range non_overlapping {
-			if len(sg.V) > m.MinVertices {
-				m.Report<-sg
+		for _, psg := range non_overlapping {
+			if len(psg.Sg.V) > m.MinVertices {
+				m.Report<-psg
 			}
-			send(sg)
+			send(psg.Sg)
 		}
 	}
 }
 
-func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
+func (m *Miner) do_extend(sg *goiso.SubGraph, send func([]byte, *goiso.SubGraph)) {
 	for _, v := range sg.V {
 		// v.Idx is the index on the SubGraph
 		// v.Id is the index on the original Graph
@@ -201,7 +201,7 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 				continue
 			}
 			if !sg.Has(e.Targ) {
-				send(sg.Extend(e.Targ))
+				send(sg.ShortLabel(), sg.Extend(e.Targ))
 			}
 		}
 	}
@@ -226,13 +226,14 @@ type Collectors struct {
 }
 
 type labelGraph struct {
+	parent []byte
 	label []byte
 	sg *goiso.SubGraph
 }
 
 func collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	for lg := range in {
-		tree.Add(lg.label, lg.sg)
+		tree.Add(lg.label, store.NewParentedSg(lg.parent, lg.sg))
 	}
 }
 
@@ -288,10 +289,10 @@ func (c *Collectors) partsCh() <-chan store.Iterator {
 	return out
 }
 
-func (c *Collectors) send(sg *goiso.SubGraph) {
+func (c *Collectors) send(parent []byte, sg *goiso.SubGraph) {
 	label := sg.ShortLabel()
 	idx := hash(label) % len(c.chs)
-	c.chs[idx] <- &labelGraph{label, sg}
+	c.chs[idx] <- &labelGraph{parent, label, sg}
 }
 
 func (c *Collectors) size() int {

@@ -25,6 +25,7 @@ package main
 
 import (
 	"compress/gzip"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -66,6 +67,7 @@ fsm - frequent subgraph mine the graph(s)
 
 Options
     -h, --help                          print this message
+    -o, --output=<path>                 path to output file
     -s, --support=<int>                 number of unique embeddings (required)
     -m, --min-vertices=<int>            minimum number of nodes to report
                                         (5 by default)
@@ -214,7 +216,7 @@ func main() {
 	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 	args, optargs, err := getopt.GetOpt(
 		os.Args[1:],
-		"hs:m:",
+		"hs:m:o:",
 		[]string{
 			"help",
 			"support=",
@@ -223,6 +225,7 @@ func main() {
 			"mem-cache",
 			"mem-profile=",
 			"cpu-profile=",
+			"output=",
 		},
 	)
 	if err != nil {
@@ -236,10 +239,13 @@ func main() {
 	memCache := false
 	memProfile := ""
 	cpuProfile := ""
+	output := ""
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
 			Usage(0)
+		case "-o", "--output":
+			output = AssertFile(oa.Arg())
 		case "-s", "--support":
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
@@ -257,6 +263,11 @@ func main() {
 
 	if support < 1 {
 		fmt.Fprintf(os.Stderr, "You must supply a support greater than 0, you gave %v\n", support)
+		Usage(ErrorCodes["opts"])
+	}
+
+	if output == "" {
+		fmt.Fprintf(os.Stderr, "You must supply an output file (use -o)\n")
 		Usage(ErrorCodes["opts"])
 	}
 
@@ -337,8 +348,14 @@ func main() {
 		defer f.Close()
 	}
 
-	for sg := range mine.Mine(G, support, minVert, maker, memProfFile) {
-		fmt.Println(sg)
+	out := store.NewFs2BpTree(G, output)
+
+	for psg := range mine.Mine(G, support, minVert, maker, memProfFile) {
+		out.Add(psg.Sg.ShortLabel(), psg)
+	}
+
+	for key, next := out.Keys()(); next != nil; key, next = next() {
+		fmt.Println(hex.EncodeToString(key))
 	}
 }
 
