@@ -70,7 +70,7 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 				pc.delete()
 			}
 			pc = collectors
-			collectors = m.makeCollectors(CPUs*2)
+			collectors = m.makeCollectors(CPUs)
 			log.Printf("starting filtering %v", round)
 			m.filterAndExtend(CPUs*4, p_it, collectors.send)
 			collectors.close()
@@ -193,6 +193,7 @@ func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
 }
 
 func (m *Miner) do_extend(sg *goiso.SubGraph, send func([]byte, *goiso.SubGraph)) {
+	label := sg.ShortLabel()
 	for _, v := range sg.V {
 		// v.Idx is the index on the SubGraph
 		// v.Id is the index on the original Graph
@@ -201,7 +202,7 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func([]byte, *goiso.SubGraph)
 				continue
 			}
 			if !sg.Has(e.Targ) {
-				send(sg.ShortLabel(), sg.Extend(e.Targ))
+				send(label, sg.Extend(e.Targ))
 			}
 		}
 	}

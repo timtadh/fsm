@@ -105,6 +105,14 @@ func (self *Fs2BpTree) Iterate() (it Iterator) {
 	return self.kvIter(kvi)
 }
 
+func (self *Fs2BpTree) Backward() (it Iterator) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	kvi, err := self.bpt.Backward()
+	assert_ok(err)
+	return self.kvIter(kvi)
+}
+
 func (self *Fs2BpTree) Has(key []byte) bool {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()

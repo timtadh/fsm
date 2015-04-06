@@ -64,6 +64,7 @@ type SubGraphsIterable interface {
 	Keys() BytesIterator
 	Values() SGIterator
 	Iterate() Iterator
+	Backward() Iterator
 }
 
 type SubGraphsOperable interface {

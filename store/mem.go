@@ -51,6 +51,11 @@ func (self *MemBpTree) Iterate() (it Iterator) {
 	return self.kvIter(bpt.Iterate())
 }
 
+func (self *MemBpTree) Backward() (it Iterator) {
+	bpt := (*bptree.BpTree)(self)
+	return self.kvIter(bpt.Backward())
+}
+
 func (self *MemBpTree) Has(key []byte) bool {
 	bpt := (*bptree.BpTree)(self)
 	return bpt.Has(types.ByteSlice(key))
