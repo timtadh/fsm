@@ -26,6 +26,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -300,41 +301,6 @@ func main() {
 	}
 	defer close_reader()
 
-	type json_object map[string]interface{}
-
-	G, err := graph.LoadGraph(reader)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error loading the graph")
-		fmt.Fprintln(os.Stderr, err)
-		Usage(ErrorCodes["opts"])
-	}
-
-	log.Print("Loaded graph, starting mining")
-	memMaker := func() store.SubGraphs {
-		return store.NewMemBpTree(127)
-	}
-
-	count := 0
-	fsMaker := func() store.SubGraphs {
-		name := fmt.Sprintf("fsm_bptree_%d", count)
-		count++
-		path := path.Join(cache, name)
-		return store.NewFs2BpTree(G, path)
-	}
-
-	memFsMaker := func() store.SubGraphs {
-		return store.AnonFs2BpTree(G)
-	}
-
-	var maker func() store.SubGraphs
-	if memCache {
-		maker = memFsMaker
-	} else if cache != "" {
-		maker = fsMaker
-	} else {
-		maker = memMaker
-	}
-
 	if cpuProfile != "" {
 		f, err := os.Create(cpuProfile)
 		if err != nil {
@@ -360,10 +326,29 @@ func main() {
 
 	allPath := path.Join(outputDir, "all.bptree")
 	labelsPath := path.Join(outputDir, "labels.bptree")
+	nodePath := path.Join(outputDir, "node-attrs.bptree")
 	maximalPath := path.Join(outputDir, "maximal.dot")
+
+	nodeBf, err := fmap.CreateBlockFile(nodePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nodeBf.Close()
+	nodeAttrs, err := bptree.New(nodeBf, 4, -1)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	G, err := graph.LoadGraph(reader, nodeAttrs)
+	if err != nil {
+		log.Println("Error loading the graph")
+		log.Panic(err)
+	}
+	log.Print("Loaded graph, about to start mining")
 
 	all := store.NewFs2BpTree(G, allPath)
 	defer all.Close()
+
 	labelsBf, err := fmap.CreateBlockFile(labelsPath)
 	if err != nil {
 		log.Fatal(err)
@@ -373,16 +358,43 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println(labels)
+
 	maximal, err := os.Create(maximalPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer maximal.Close()
 
+	memMaker := func() store.SubGraphs {
+		return store.NewMemBpTree(127)
+	}
+
+	count := 0
+	fsMaker := func() store.SubGraphs {
+		name := fmt.Sprintf("fsm_bptree_%d", count)
+		count++
+		path := path.Join(cache, name)
+		return store.NewFs2BpTree(G, path)
+	}
+
+	memFsMaker := func() store.SubGraphs {
+		return store.AnonFs2BpTree(G)
+	}
+
+	var maker func() store.SubGraphs
+	if memCache {
+		maker = memFsMaker
+	} else if cache != "" {
+		maker = fsMaker
+	} else {
+		maker = memMaker
+	}
+
 	for psg := range mine.Mine(G, support, minVert, maker, memProfFile) {
 		all.Add(psg.Sg.ShortLabel(), psg)
 	}
+
+	log.Print("Finished mining, about to compute maximal frequent subgraphs.")
 
 	var cur []byte
 	var had bool = false
@@ -390,7 +402,7 @@ func main() {
 		if cur != nil && !bytes.Equal(key, cur) {
 			if !had {
 				had = false
-				doOutput(maximal, all, cur)
+				doOutput(maximal, nodeAttrs, all, cur)
 			}
 			addToLabels(labels, cur)
 		}
@@ -403,8 +415,10 @@ func main() {
 		addToLabels(labels, psg.Parent)
 	}
 	if !had && cur != nil {
-		doOutput(maximal, all, cur)
+		doOutput(maximal, nodeAttrs, all, cur)
 	}
+
+	log.Print("Done!")
 }
 
 func addToLabels(labels *bptree.BpTree, label []byte) {
@@ -420,11 +434,29 @@ func addToLabels(labels *bptree.BpTree, label []byte) {
 	}
 }
 
-func doOutput(w io.Writer, all store.SubGraphs, key []byte) {
+func doOutput(w io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
 	fmt.Fprintln(w, "//", hex.EncodeToString(key))
 	fmt.Fprintln(w)
 	for _, psg, next := all.Find(key)(); next != nil; _, psg, next = next() {
-		fmt.Fprintln(w, psg.Sg)
+		attrs := make(map[int]map[string]interface{})
+		for _, v := range psg.Sg.V {
+			bid := make([]byte, 4)
+			binary.BigEndian.PutUint32(bid, uint32(v.Id))
+			err := nodeAttrs.DoFind(
+				bid,
+				func(key, value []byte) error {
+					a, err := graph.ParseJson(value)
+					if err != nil {
+						log.Fatal(err)
+					}
+					attrs[v.Id] = a
+					return nil
+				})
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		fmt.Fprintln(w, psg.Sg.StringWithAttrs(attrs))
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w)

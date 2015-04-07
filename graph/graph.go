@@ -25,6 +25,7 @@ package graph
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,10 +35,11 @@ import (
 import (
 	"github.com/timtadh/data-structures/hashtable"
 	"github.com/timtadh/data-structures/types"
+	"github.com/timtadh/fs2/bptree"
 	"github.com/timtadh/goiso"
 )
 
-type jsonObject map[string]interface{}
+type JsonObject map[string]interface{}
 
 type error_list []error
 type ParseErrors error_list
@@ -102,11 +104,11 @@ func ProcessLines(reader io.Reader, process func([]byte)) {
 	}
 }
 
-func renderJson(obj jsonObject) (data []byte, err error) {
+func renderJson(obj JsonObject) (data []byte, err error) {
 	return json.Marshal(obj)
 }
 
-func parseJson(data []byte) (obj jsonObject, err error) {
+func ParseJson(data []byte) (obj JsonObject, err error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&obj); err != nil {
@@ -120,7 +122,7 @@ func parseLine(line []byte) (line_type string, data []byte) {
 	return strings.TrimSpace(string(split[0])), bytes.TrimSpace(split[1])
 }
 
-func LoadGraph(reader io.Reader) (graph *goiso.Graph, err error) {
+func LoadGraph(reader io.Reader, nodeAttrs *bptree.BpTree) (graph *goiso.Graph, err error) {
 	var errors ParseErrors
 	G := goiso.NewGraph(100, 100)
 	graph = &G
@@ -133,7 +135,7 @@ func LoadGraph(reader io.Reader) (graph *goiso.Graph, err error) {
 		line_type, data := parseLine(line)
 		switch line_type {
 		case "vertex":
-			if err := LoadVertex(graph, vids, data); err != nil {
+			if err := LoadVertex(graph, vids, nodeAttrs, data); err != nil {
 				errors = append(errors, err)
 			}
 		case "edge":
@@ -151,8 +153,8 @@ func LoadGraph(reader io.Reader) (graph *goiso.Graph, err error) {
 	return graph, errors
 }
 
-func LoadVertex(g *goiso.Graph, vids types.Map, data []byte) (err error) {
-	obj, err := parseJson(data)
+func LoadVertex(g *goiso.Graph, vids types.Map, nodeAttrs *bptree.BpTree, data []byte) (err error) {
+	obj, err := ParseJson(data)
 	if err != nil {
 		return err
 	}
@@ -167,18 +169,26 @@ func LoadVertex(g *goiso.Graph, vids types.Map, data []byte) (err error) {
 	if err != nil {
 		return err
 	}
+	{
+		bid := make([]byte, 4)
+		binary.BigEndian.PutUint32(bid, uint32(vertex.Idx))
+		err = nodeAttrs.Add(bid, data)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func SerializeVertex(g *goiso.Graph, v *goiso.Vertex) ([]byte, error) {
-	obj := make(jsonObject)
+	obj := make(JsonObject)
 	obj["id"] = v.Id
 	obj["label"] = g.Colors[v.Color]
 	return renderJson(obj)
 }
 
 func LoadEdge(g *goiso.Graph, vids types.Map, data []byte) (err error) {
-	obj, err := parseJson(data)
+	obj, err := ParseJson(data)
 	if err != nil {
 		return err
 	}
@@ -208,7 +218,7 @@ func LoadEdge(g *goiso.Graph, vids types.Map, data []byte) (err error) {
 }
 
 func SerializeEdge(g *goiso.Graph, e *goiso.Edge) ([]byte, error) {
-	obj := make(jsonObject)
+	obj := make(JsonObject)
 	obj["src"] = g.V[e.Src].Id
 	obj["targ"] = g.V[e.Targ].Id
 	obj["label"] = g.Colors[e.Color]
