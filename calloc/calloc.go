@@ -53,11 +53,13 @@ func New(t reflect.Type) interface{} {
 	return reflect.NewAt(t.Elem(), ptr).Interface()
 }
 
+// Free something allocated with this system. Never free something if
+// wasn't allocated here
 func Free(i interface{}) {
 	v := reflect.ValueOf(i)
 	t := v.Type()
 	if t.Kind() == reflect.Slice {
-		FreeSlice(i)
+		freeSlice(i)
 		return
 	}
 	if t.Kind() != reflect.Ptr {
@@ -66,7 +68,7 @@ func Free(i interface{}) {
 	C.free(unsafe.Pointer(v.Pointer()))
 }
 
-func FreeSlice(i interface{}) {
+func freeSlice(i interface{}) {
 	ptr := unsafe.Pointer(&i) // pointer to interface
 	inter := (*[2]uintptr)(ptr) // unpace the interface
 	s := *(*slice.Slice)(unsafe.Pointer((*inter)[1])) // grab the pointer to the slice data
