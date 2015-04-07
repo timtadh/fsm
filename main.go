@@ -360,38 +360,29 @@ func main() {
 
 	allPath := path.Join(outputDir, "all.bptree")
 	labelsPath := path.Join(outputDir, "labels.bptree")
-	// closedPath := path.Join(outputDir, "closed.dot")
+	maximalPath := path.Join(outputDir, "maximal.dot")
 
 	all := store.NewFs2BpTree(G, allPath)
+	defer all.Close()
 	labelsBf, err := fmap.CreateBlockFile(labelsPath)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer labelsBf.Close()
 	labels, err := bptree.New(labelsBf, -1, 1)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(labels)
+	maximal, err := os.Create(maximalPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer maximal.Close()
 
 	for psg := range mine.Mine(G, support, minVert, maker, memProfFile) {
 		all.Add(psg.Sg.ShortLabel(), psg)
 	}
-
-	/*
-	for key, next := all.Keys()(); next != nil; key, next = next() {
-		fmt.Println(hex.EncodeToString(key))
-	}
-	*/
-
-	/*
-	var cur []byte
-	for key, _, next := all.Backward()(); next != nil; key, _, next = next() {
-		if !bytes.Equal(key, cur) {
-			fmt.Println(hex.EncodeToString(key))
-		}
-		cur = key
-	}
-	*/
 
 	var cur []byte
 	var had bool = false
@@ -399,8 +390,7 @@ func main() {
 		if cur != nil && !bytes.Equal(key, cur) {
 			if !had {
 				had = false
-				// output key here
-				doOutput(all, cur)
+				doOutput(maximal, all, cur)
 			}
 			addToLabels(labels, cur)
 		}
@@ -413,8 +403,7 @@ func main() {
 		addToLabels(labels, psg.Parent)
 	}
 	if !had && cur != nil {
-		// output key here
-		doOutput(all, cur)
+		doOutput(maximal, all, cur)
 	}
 }
 
@@ -431,13 +420,13 @@ func addToLabels(labels *bptree.BpTree, label []byte) {
 	}
 }
 
-func doOutput(all store.SubGraphs, key []byte) {
-	fmt.Println("//", hex.EncodeToString(key))
-	fmt.Println()
+func doOutput(w io.Writer, all store.SubGraphs, key []byte) {
+	fmt.Fprintln(w, "//", hex.EncodeToString(key))
+	fmt.Fprintln(w)
 	for _, psg, next := all.Find(key)(); next != nil; _, psg, next = next() {
-		fmt.Println(psg.Sg)
+		fmt.Fprintln(w, psg.Sg)
 	}
-	fmt.Println()
-	fmt.Println()
+	fmt.Fprintln(w)
+	fmt.Fprintln(w)
 }
 

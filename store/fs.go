@@ -178,13 +178,17 @@ func (self *Fs2BpTree) Remove(key []byte, where func(*ParentedSg) bool) error {
 	})
 }
 
-func (self *Fs2BpTree) Delete() {
+func (self *Fs2BpTree) Close() {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	err := self.bf.Close()
 	assert_ok(err)
+}
+
+func (self *Fs2BpTree) Delete() {
+	self.Close()
 	if self.bf.Path() != "" {
-		err = self.bf.Remove()
+		err := self.bf.Remove()
 		assert_ok(err)
 	}
 }
