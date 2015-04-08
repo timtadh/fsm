@@ -201,8 +201,8 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func([]byte, *goiso.SubGraph)
 			if m.Graph.ColorFrequency(m.Graph.V[e.Targ].Color) < m.Support {
 				continue
 			}
-			if !sg.Has(e.Targ) {
-				send(label, sg.Extend(e.Targ))
+			if !sg.HasEdge(e.Arc, e.Color) {
+				send(label, sg.EdgeExtend(e))
 			}
 		}
 	}
