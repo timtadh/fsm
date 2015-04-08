@@ -65,13 +65,17 @@ var ErrorCodes map[string]int = map[string]int{
 	"badfile": 7,
 }
 
-var UsageMessage string = "fsm [options] -s <support> <graphs>"
+var UsageMessage string = "fsm [options] -s <support> -o <output-dir> <graphs>"
 var ExtendedMessage string = `
 fsm - frequent subgraph mine the graph(s)
 
 Options
     -h, --help                          print this message
     -o, --output=<path>                 path to output directory
+    --vertex-extend                     extend the subgraphs one vertex at a
+                                        time (instead of one edge at a time).
+                                        The result may be less complete than the
+                                        default mode.
     -s, --support=<int>                 number of unique embeddings (required)
     -m, --min-vertices=<int>            minimum number of nodes to report
                                         (5 by default)
@@ -230,6 +234,7 @@ func main() {
 		"hs:m:o:",
 		[]string{
 			"help",
+			"vertex-extend",
 			"support=",
 			"min-vertices=",
 			"cache=",
@@ -244,6 +249,7 @@ func main() {
 		Usage(ErrorCodes["opts"])
 	}
 
+	vertexExtend := false
 	support := -1
 	minVert := 5
 	cache := ""
@@ -257,6 +263,8 @@ func main() {
 			Usage(0)
 		case "-o", "--output":
 			outputDir = AssertDir(oa.Arg())
+		case "--vertex-extend":
+			vertexExtend = true
 		case "-s", "--support":
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
@@ -390,7 +398,7 @@ func main() {
 		maker = memMaker
 	}
 
-	for psg := range mine.Mine(G, support, minVert, maker, memProfFile) {
+	for psg := range mine.Mine(G, support, minVert, vertexExtend, maker, memProfFile) {
 		all.Add(psg.Sg.ShortLabel(), psg)
 	}
 

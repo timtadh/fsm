@@ -44,13 +44,14 @@ type partitionIterator func() (part store.Iterator, next partitionIterator)
 
 type Miner struct {
 	Graph *goiso.Graph
+	VertexExtend bool
 	Support int
 	MinVertices int
 	Report chan<- *store.ParentedSg
 	MakeStore func() store.SubGraphs
 }
 
-func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *store.ParentedSg {
+func Mine(G *goiso.Graph, support, minpat int, vertexExtend bool, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *store.ParentedSg {
 	CPUs := runtime.NumCPU()
 	fsg := make(chan *store.ParentedSg)
 	ticker := time.NewTicker(10 * time.Second)
@@ -59,7 +60,14 @@ func Mine(G *goiso.Graph, support, minpat int, makeStore func() store.SubGraphs,
 			runtime.GC()
 		}
 	}(ticker.C)
-	m := &Miner{Graph: G, Support: support, MinVertices: minpat, Report: fsg, MakeStore: makeStore}
+	m := &Miner{
+		Graph: G,
+		Support: support,
+		VertexExtend: vertexExtend,
+		MinVertices: minpat,
+		Report: fsg,
+		MakeStore: makeStore,
+	}
 	var profMutex sync.Mutex
 	miner := func() {
 		p_it, collectors := m.initial()
@@ -201,8 +209,14 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func([]byte, *goiso.SubGraph)
 			if m.Graph.ColorFrequency(m.Graph.V[e.Targ].Color) < m.Support {
 				continue
 			}
-			if !sg.HasEdge(e.Arc, e.Color) {
-				send(label, sg.EdgeExtend(e))
+			if m.VertexExtend {
+				if !sg.HasVertex(e.Targ) {
+					send(label, sg.Extend(e.Targ))
+				}
+			} else {
+				if !sg.HasEdge(e.Arc, e.Color) {
+					send(label, sg.EdgeExtend(e))
+				}
 			}
 		}
 	}
