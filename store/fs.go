@@ -85,7 +85,7 @@ func (self *Fs2BpTree) Values() (it SGIterator) {
 	kvi, err := self.bpt.Iterate()
 	assert_ok(err)
 	raw := self.kvIter(kvi)
-	it = func() (v *ParentedSg, _ SGIterator) {
+	it = func() (v *goiso.SubGraph, _ SGIterator) {
 		self.mutex.Lock()
 		defer self.mutex.Unlock()
 		_, v, raw = raw()
@@ -129,10 +129,10 @@ func (self *Fs2BpTree) Count(key []byte) int {
 	return count
 }
 
-func (self *Fs2BpTree) Add(key []byte, psg *ParentedSg) {
+func (self *Fs2BpTree) Add(key []byte, sg *goiso.SubGraph) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	value := psg.Serialize()
+	value := sg.Serialize()
 	assert_ok(self.bpt.Add(key, value))
 	has, err := self.bpt.Has(key)
 	assert_ok(err)
@@ -143,7 +143,7 @@ func (self *Fs2BpTree) Add(key []byte, psg *ParentedSg) {
 }
 
 func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
-	it = func() ([]byte, *ParentedSg, Iterator) {
+	it = func() ([]byte, *goiso.SubGraph, Iterator) {
 		self.mutex.Lock()
 		defer self.mutex.Unlock()
 		var key []byte
@@ -155,8 +155,8 @@ func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
 		if kvi == nil {
 			return nil, nil, nil
 		}
-		psg := DeserializeParentedSg(self.g, bytes)
-		return key, psg, it
+		sg := goiso.DeserializeSubGraph(self.g, bytes)
+		return key, sg, it
 	}
 	return it
 }
@@ -169,11 +169,11 @@ func (self *Fs2BpTree) Find(key []byte) (it Iterator) {
 	return self.kvIter(kvi)
 }
 
-func (self *Fs2BpTree) Remove(key []byte, where func(*ParentedSg) bool) error {
+func (self *Fs2BpTree) Remove(key []byte, where func(*goiso.SubGraph) bool) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	return self.bpt.Remove(key, func(bytes []byte) bool {
-		sg := DeserializeParentedSg(self.g, bytes)
+		sg := goiso.DeserializeSubGraph(self.g, bytes)
 		return where(sg)
 	})
 }

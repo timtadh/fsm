@@ -27,7 +27,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
-	"encoding/hex"
+	// "encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -79,6 +79,7 @@ Options
     -s, --support=<int>                 number of unique embeddings (required)
     -m, --min-vertices=<int>            minimum number of nodes to report
                                         (5 by default)
+    --maximal                           only report maximal frequent subgraphs
     -c, --cache=<path>                  use an on disk cache. put the cache files
                                         in the given directory.
     --mem-cache                         use an anonymous memmory mapped cache.
@@ -235,6 +236,7 @@ func main() {
 		[]string{
 			"help",
 			"vertex-extend",
+			"maximal",
 			"support=",
 			"min-vertices=",
 			"cache=",
@@ -252,6 +254,7 @@ func main() {
 	vertexExtend := false
 	support := -1
 	minVert := 5
+	maximal := false
 	cache := ""
 	memCache := false
 	memProfile := ""
@@ -265,6 +268,8 @@ func main() {
 			outputDir = AssertDir(oa.Arg())
 		case "--vertex-extend":
 			vertexExtend = true
+		case "--maximal":
+			maximal = true
 		case "-s", "--support":
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
@@ -332,10 +337,13 @@ func main() {
 		defer f.Close()
 	}
 
-	allPath := path.Join(outputDir, "all.bptree")
+	allPath := path.Join(outputDir, "all-embeddings.bptree")
 	labelsPath := path.Join(outputDir, "labels.bptree")
 	nodePath := path.Join(outputDir, "node-attrs.bptree")
-	maximalPath := path.Join(outputDir, "maximal.dot")
+	maxEPath := path.Join(outputDir, "maximal-embeddings.dot")
+	maxPPath := path.Join(outputDir, "maximal-patterns.dot")
+	allEPath := path.Join(outputDir, "all-embeddings.dot")
+	allPPath := path.Join(outputDir, "all-patterns.dot")
 
 	nodeBf, err := fmap.CreateBlockFile(nodePath)
 	if err != nil {
@@ -367,11 +375,33 @@ func main() {
 		log.Fatal(err)
 	}
 
-	maximal, err := os.Create(maximalPath)
+	var maxe io.Writer
+	var maxp io.Writer
+	if maximal {
+		max, err := os.Create(maxEPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer max.Close()
+		maxe = max
+		max, err = os.Create(maxPPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer max.Close()
+		maxp = max
+	}
+
+	alle, err := os.Create(allEPath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer maximal.Close()
+	defer alle.Close()
+	allp, err := os.Create(allPPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer allp.Close()
 
 	memMaker := func() store.SubGraphs {
 		return store.NewMemBpTree(127)
@@ -398,34 +428,48 @@ func main() {
 		maker = memMaker
 	}
 
-	for psg := range mine.Mine(G, support, minVert, vertexExtend, maker, memProfFile) {
-		all.Add(psg.Sg.ShortLabel(), psg)
+	for sg := range mine.Mine(G, support, minVert, vertexExtend, maker, memProfFile) {
+		all.Add(sg.ShortLabel(), sg)
 	}
 
-	log.Print("Finished mining, about to compute maximal frequent subgraphs.")
-
-	var cur []byte
-	var had bool = false
-	for key, psg, next := all.Backward()(); next != nil; key, psg, next = next() {
-		if cur != nil && !bytes.Equal(key, cur) {
-			if !had {
+	if maximal {
+		log.Print("Finished mining, about to compute maximal frequent subgraphs.")
+		var cur []byte
+		var had bool = false
+		for key, sg, next := all.Backward()(); next != nil; key, sg, next = next() {
+			if cur != nil && !bytes.Equal(key, cur) {
+				if !had {
+					doOutput(maxe, maxp, nodeAttrs, all, cur)
+				}
 				had = false
-				doOutput(maximal, nodeAttrs, all, cur)
 			}
-			addToLabels(labels, cur)
+			has, err := labels.Has(key)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if has {
+				had = true
+			}
+			if !bytes.Equal(cur, key) {
+				// add all of the (potential) parents of this node
+				for eIdx := range sg.E {
+					addToLabels(labels, sg.RemoveEdge(eIdx).ShortLabel())
+				}
+			}
+			cur = key
 		}
-		has, err := labels.Has(key)
-		if err != nil {
-			log.Fatal(err)
+		if !had && cur != nil {
+			doOutput(maxe, maxp, nodeAttrs, all, cur)
 		}
-		had = had || has
-		cur = key
-		addToLabels(labels, psg.Parent)
 	}
-	if !had && cur != nil {
-		doOutput(maximal, nodeAttrs, all, cur)
+	log.Print("Finished mining, writing output.")
+	for key, next := all.Keys()(); next != nil; key, next = next() {
+		doOutput(alle, allp, nodeAttrs, all, key)
 	}
-
+	/*
+	for i, c := range G.Colors {
+		fmt.Printf("%d '%v'\n", i, c)
+	}*/
 	log.Print("Done!")
 }
 
@@ -442,12 +486,11 @@ func addToLabels(labels *bptree.BpTree, label []byte) {
 	}
 }
 
-func doOutput(w io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
-	fmt.Fprintln(w, "//", hex.EncodeToString(key))
-	fmt.Fprintln(w)
-	for _, psg, next := all.Find(key)(); next != nil; _, psg, next = next() {
+func doOutput(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
+	i := 0
+	for _, sg, next := all.Find(key)(); next != nil; _, sg, next = next() {
 		attrs := make(map[int]map[string]interface{})
-		for _, v := range psg.Sg.V {
+		for _, v := range sg.V {
 			bid := make([]byte, 4)
 			binary.BigEndian.PutUint32(bid, uint32(v.Id))
 			err := nodeAttrs.DoFind(
@@ -464,9 +507,19 @@ func doOutput(w io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []
 				log.Fatal(err)
 			}
 		}
-		fmt.Fprintln(w, psg.Sg.StringWithAttrs(attrs))
+		if i == 0 {
+			fmt.Fprintln(patterns, "//", sg.Label())
+			fmt.Fprintln(patterns)
+			fmt.Fprintln(patterns, sg.String())
+			fmt.Fprintln(embeddings, "//", sg.Label())
+			fmt.Fprintln(embeddings)
+		}
+		fmt.Fprintln(embeddings, sg.StringWithAttrs(attrs))
+		i++
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w)
+	fmt.Fprintln(patterns)
+	fmt.Fprintln(patterns)
+	fmt.Fprintln(embeddings)
+	fmt.Fprintln(embeddings)
 }
 

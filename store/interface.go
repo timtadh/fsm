@@ -70,9 +70,9 @@ type SubGraphsIterable interface {
 type SubGraphsOperable interface {
 	Has(key []byte) bool
 	Count(key []byte) int
-	Add(key []byte, value *ParentedSg)
+	Add(key []byte, value *goiso.SubGraph)
 	Find(key []byte) Iterator
-	Remove(key []byte, where func(*ParentedSg) bool) error
+	Remove(key []byte, where func(*goiso.SubGraph) bool) error
 }
 
 type SubGraphs interface {
@@ -82,7 +82,7 @@ type SubGraphs interface {
 	Delete()
 }
 
-type SGIterator func() (*ParentedSg, SGIterator)
+type SGIterator func() (*goiso.SubGraph, SGIterator)
 type BytesIterator func() ([]byte, BytesIterator)
-type Iterator func() ([]byte, *ParentedSg, Iterator)
+type Iterator func() ([]byte, *goiso.SubGraph, Iterator)
 
