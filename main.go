@@ -79,6 +79,7 @@ Options
     -s, --support=<int>                 number of unique embeddings (required)
     -m, --min-vertices=<int>            minimum number of nodes to report
                                         (5 by default)
+    --max-rounds=<int>                  maxium number of rounds to do
     --maximal                           only report maximal frequent subgraphs
     -c, --cache=<path>                  use an on disk cache. put the cache files
                                         in the given directory.
@@ -239,6 +240,7 @@ func main() {
 			"maximal",
 			"support=",
 			"min-vertices=",
+			"max-rounds=",
 			"cache=",
 			"mem-cache",
 			"mem-profile=",
@@ -254,6 +256,7 @@ func main() {
 	vertexExtend := false
 	support := -1
 	minVert := 5
+	maxRounds := -1
 	maximal := false
 	cache := ""
 	memCache := false
@@ -274,6 +277,8 @@ func main() {
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			minVert = ParseInt(oa.Arg())
+		case "--max-rounds":
+			maxRounds = ParseInt(oa.Arg())
 		case "--cache":
 			cache = AssertDir(oa.Arg())
 		case "--mem-cache":
@@ -428,7 +433,7 @@ func main() {
 		maker = memMaker
 	}
 
-	for sg := range mine.Mine(G, support, minVert, vertexExtend, maker, memProfFile) {
+	for sg := range mine.Mine(G, support, minVert, maxRounds, vertexExtend, maker, memProfFile) {
 		all.Add(sg.ShortLabel(), sg)
 	}
 

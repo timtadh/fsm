@@ -47,11 +47,12 @@ type Miner struct {
 	VertexExtend bool
 	Support int
 	MinVertices int
+	MaxRounds int
 	Report chan<- *goiso.SubGraph
 	MakeStore func() store.SubGraphs
 }
 
-func Mine(G *goiso.Graph, support, minpat int, vertexExtend bool, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *goiso.SubGraph {
+func Mine(G *goiso.Graph, support, min, max int, vertexExtend bool, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *goiso.SubGraph {
 	CPUs := runtime.NumCPU()
 	fsg := make(chan *goiso.SubGraph)
 	ticker := time.NewTicker(10 * time.Second)
@@ -64,7 +65,8 @@ func Mine(G *goiso.Graph, support, minpat int, vertexExtend bool, makeStore func
 		Graph: G,
 		Support: support,
 		VertexExtend: vertexExtend,
-		MinVertices: minpat,
+		MinVertices: min,
+		MaxRounds: max,
 		Report: fsg,
 		MakeStore: makeStore,
 	}
@@ -83,7 +85,7 @@ func Mine(G *goiso.Graph, support, minpat int, vertexExtend bool, makeStore func
 			m.filterAndExtend(CPUs*4, p_it, collectors.send)
 			collectors.close()
 			size := collectors.size() 
-			if size <= 0 {
+			if size <= 0 || (m.MaxRounds > 0 && round >= m.MaxRounds) {
 				break
 			}
 			p_it = collectors.partsCh()
@@ -213,7 +215,7 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 					send(sg.Extend(e.Targ))
 				}
 			} else {
-				if !sg.HasEdge(e.Arc, e.Color) {
+				if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
 					send(sg.EdgeExtend(e))
 				}
 			}
