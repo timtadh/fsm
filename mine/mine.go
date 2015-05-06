@@ -47,6 +47,7 @@ type Miner struct {
 	VertexExtend bool
 	Support int
 	MinVertices int
+	MaxGroup int
 	MaxRounds int
 	Report chan<- *goiso.SubGraph
 	MakeStore func() store.SubGraphs
@@ -67,6 +68,7 @@ func Mine(G *goiso.Graph, support, min, max int, vertexExtend bool, makeStore fu
 		VertexExtend: vertexExtend,
 		MinVertices: min,
 		MaxRounds: max,
+		MaxGroup: support*100,
 		Report: fsg,
 		MakeStore: makeStore,
 	}
@@ -145,13 +147,34 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 	return s
 }
 
+var recycler chan []*goiso.SubGraph
+
+func init() {
+	recycler = make(chan []*goiso.SubGraph, 50)
+}
+
+func getSlice() []*goiso.SubGraph {
+	select {
+	case slice := <-recycler: return slice
+	default: return make([]*goiso.SubGraph, 0, 500)
+	}
+}
+
+func releaseSlice(slice []*goiso.SubGraph) {
+	slice = slice[0:0]
+	select {
+	case recycler<-slice: return
+	default: return
+	}
+}
+
 func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
-	vids := set.NewSortedSet(m.Support*100 + 1)
-	non_overlapping := make([]*goiso.SubGraph, 0, m.Support*100 + 1)
+	vids := set.NewSortedSet(m.MaxGroup + 1)
+	non_overlapping := getSlice()
 	i := 0
 	var sg *goiso.SubGraph
 	for _, sg, sgs = sgs(); sgs != nil; _, sg, sgs = sgs() {
-		if i > m.Support*100 {
+		if i > m.MaxGroup {
 			// skip super big groups as nonOverlapping takes for ever
 			return nil
 		}
@@ -200,6 +223,7 @@ func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
 			send(sg)
 		}
 	}
+	releaseSlice(non_overlapping)
 }
 
 func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
@@ -246,21 +270,24 @@ type labelGraph struct {
 	sg *goiso.SubGraph
 }
 
-func collector(tree store.SubGraphs, in <-chan *labelGraph) {
+func (m *Miner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	for lg := range in {
+		if tree.Count(lg.label) > m.MaxGroup + 1 {
+			continue
+		}
 		tree.Add(lg.label, lg.sg)
 	}
 }
 
-func (self *Miner) makeCollectors(N int) *Collectors {
+func (m *Miner) makeCollectors(N int) *Collectors {
 	trees := make([]store.SubGraphs, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
 	for i := 0; i < N; i++ {
-		tree := self.MakeStore()
+		tree := m.MakeStore()
 		ch := make(chan *labelGraph)
 		trees = append(trees, tree)
 		chs = append(chs, ch)
-		go collector(tree, ch)
+		go m.collector(tree, ch)
 	}
 	return &Collectors{trees, chs}
 }
