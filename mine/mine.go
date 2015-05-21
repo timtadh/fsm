@@ -138,7 +138,7 @@ func (m *Miner) Initial(send func(*goiso.SubGraph)) {
 }
 
 func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
-	s := set.NewSortedSet(len(sg.V))
+	s := getSet()
 	for _, v := range sg.V {
 		if err := s.Add(types.Int(v.Id)); err != nil {
 			panic(err)
@@ -147,29 +147,46 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 	return s
 }
 
-var recycler chan []*goiso.SubGraph
+var sliceRecycler chan []*goiso.SubGraph
+var setRecycler chan *set.SortedSet
 
 func init() {
-	recycler = make(chan []*goiso.SubGraph, 50)
+	sliceRecycler = make(chan []*goiso.SubGraph, 50)
+	setRecycler = make(chan *set.SortedSet, 50)
 }
 
 func getSlice() []*goiso.SubGraph {
 	select {
-	case slice := <-recycler: return slice
-	default: return make([]*goiso.SubGraph, 0, 500)
+	case slice := <-sliceRecycler: return slice
+	default: return make([]*goiso.SubGraph, 0, 100)
 	}
 }
 
 func releaseSlice(slice []*goiso.SubGraph) {
 	slice = slice[0:0]
 	select {
-	case recycler<-slice: return
+	case sliceRecycler<-slice: return
+	default: return
+	}
+}
+
+func getSet() *set.SortedSet {
+	select {
+	case set := <-setRecycler: return set
+	default: return set.NewSortedSet(100)
+	}
+}
+
+func releaseSet(set *set.SortedSet) {
+	set.Clear()
+	select {
+	case setRecycler<-set: return
 	default: return
 	}
 }
 
 func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
-	vids := set.NewSortedSet(m.MaxGroup + 1)
+	vids := getSet()
 	non_overlapping := getSlice()
 	i := 0
 	var sg *goiso.SubGraph
@@ -188,8 +205,10 @@ func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 				}
 			}
 		}
+		releaseSet(s)
 		i++
 	}
+	releaseSet(vids)
 	return non_overlapping
 }
 
