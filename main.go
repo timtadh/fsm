@@ -77,8 +77,10 @@ Options
                                         The result may be less complete than the
                                         default mode.
     -s, --support=<int>                 number of unique embeddings (required)
+    --max-support=<int>                 max-number of unique embeddings
     -m, --min-vertices=<int>            minimum number of nodes to report
                                         (5 by default)
+    --start-prefix=<string>             prefix of nodes to use in initial set
     --max-rounds=<int>                  maxium number of rounds to do
     --maximal                           only report maximal frequent subgraphs
     -c, --cache=<path>                  use an on disk cache. put the cache files
@@ -239,8 +241,10 @@ func main() {
 			"vertex-extend",
 			"maximal",
 			"support=",
+			"max-support=",
 			"min-vertices=",
 			"max-rounds=",
+			"start-prefix=",
 			"cache=",
 			"mem-cache",
 			"mem-profile=",
@@ -255,8 +259,10 @@ func main() {
 
 	vertexExtend := false
 	support := -1
+	maxSupport := -1
 	minVert := 5
 	maxRounds := -1
+	startPrefix := ""
 	maximal := false
 	cache := ""
 	memCache := false
@@ -275,8 +281,12 @@ func main() {
 			maximal = true
 		case "-s", "--support":
 			support = ParseInt(oa.Arg())
+		case "--max-support":
+			maxSupport = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			minVert = ParseInt(oa.Arg())
+		case "--start-prefix":
+			startPrefix = oa.Arg()
 		case "--max-rounds":
 			maxRounds = ParseInt(oa.Arg())
 		case "--cache":
@@ -293,6 +303,10 @@ func main() {
 	if support < 1 {
 		fmt.Fprintf(os.Stderr, "You must supply a support greater than 0, you gave %v\n", support)
 		Usage(ErrorCodes["opts"])
+	}
+
+	if maxSupport < 1 {
+		maxSupport = support*100
 	}
 
 	if outputDir == "" {
@@ -432,8 +446,16 @@ func main() {
 	} else {
 		maker = memMaker
 	}
-
-	for sg := range mine.Mine(G, support, minVert, maxRounds, vertexExtend, maker, memProfFile) {
+	
+	embeddings := mine.Mine(
+		G,
+		support, maxSupport, minVert, maxRounds,
+		startPrefix,
+		vertexExtend,
+		maker,
+		memProfFile,
+	)
+	for sg := range embeddings {
 		all.Add(sg.ShortLabel(), sg)
 	}
 

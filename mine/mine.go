@@ -30,6 +30,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"time"
+	"strings"
 	"sync"
 )
 
@@ -47,13 +48,23 @@ type Miner struct {
 	VertexExtend bool
 	Support int
 	MinVertices int
-	MaxGroup int
+	MaxSupport int
 	MaxRounds int
+	StartPrefix string
 	Report chan<- *goiso.SubGraph
 	MakeStore func() store.SubGraphs
 }
 
-func Mine(G *goiso.Graph, support, min, max int, vertexExtend bool, makeStore func() store.SubGraphs, memProf io.Writer) <-chan *goiso.SubGraph {
+func Mine(
+	G *goiso.Graph,
+	support, maxSupport, minVertices, maxRounds int,
+	startPrefix string,
+	vertexExtend bool,
+	makeStore func() store.SubGraphs,
+	memProf io.Writer,
+) (
+	<-chan *goiso.SubGraph,
+) {
 	CPUs := runtime.NumCPU()
 	fsg := make(chan *goiso.SubGraph)
 	ticker := time.NewTicker(10 * time.Second)
@@ -65,10 +76,11 @@ func Mine(G *goiso.Graph, support, min, max int, vertexExtend bool, makeStore fu
 	m := &Miner{
 		Graph: G,
 		Support: support,
+		MaxSupport: maxSupport,
+		MinVertices: minVertices,
+		MaxRounds: maxRounds,
+		StartPrefix: startPrefix,
 		VertexExtend: vertexExtend,
-		MinVertices: min,
-		MaxRounds: max,
-		MaxGroup: support*100,
 		Report: fsg,
 		MakeStore: makeStore,
 	}
@@ -128,7 +140,12 @@ func (m *Miner) Initial(send func(*goiso.SubGraph)) {
 	log.Printf("Creating initial set")
 	graphs := 0
 	for _, v := range m.Graph.V {
-		if m.Graph.ColorFrequency(v.Color) < m.Support {
+		color := m.Graph.Colors[v.Color]
+		if m.StartPrefix != "" && !strings.HasPrefix(color, m.StartPrefix) {
+			continue
+		}
+		freq := m.Graph.ColorFrequency(v.Color)
+		if freq < m.Support || freq > m.MaxSupport {
 			continue
 		}
 		send(m.Graph.SubGraph([]int{v.Idx}, nil))
@@ -191,7 +208,7 @@ func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 	i := 0
 	var sg *goiso.SubGraph
 	for _, sg, sgs = sgs(); sgs != nil; _, sg, sgs = sgs() {
-		if i > m.MaxGroup {
+		if i > m.MaxSupport - 1 {
 			// skip super big groups as nonOverlapping takes for ever
 			return nil
 		}
@@ -291,7 +308,7 @@ type labelGraph struct {
 
 func (m *Miner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	for lg := range in {
-		if tree.Count(lg.label) > m.MaxGroup + 1 {
+		if tree.Count(lg.label) > m.MaxSupport + 1 {
 			continue
 		}
 		tree.Add(lg.label, lg.sg)
