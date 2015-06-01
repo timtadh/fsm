@@ -254,7 +254,7 @@ func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
 	if len(non_overlapping) >= m.Support {
 		for _, sg := range non_overlapping {
 			if len(sg.V) >= m.MinVertices {
-				m.Report<-sg
+				m.Report<-sg.Copy()
 			}
 			send(sg)
 		}
