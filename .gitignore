@@ -7,4 +7,6 @@ bin
 data
 cpuprof
 memprof
+*.out
+*.pprof
 
