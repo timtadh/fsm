@@ -24,6 +24,7 @@ package mine
  */
 
 import (
+	"bytes"
 	"hash/fnv"
 	"io"
 	"log"
@@ -96,7 +97,7 @@ func Mine(
 			pc = collectors
 			collectors = m.makeCollectors(CPUs*2)
 			log.Printf("starting filtering %v", round)
-			m.filterAndExtend(CPUs*4, p_it, collectors.send)
+			m.filterAndExtend(CPUs*4, p_it, collectors.makeSend())
 			collectors.close()
 			size := collectors.size() 
 			if size <= 0 || (m.MaxRounds > 0 && round >= m.MaxRounds) {
@@ -112,6 +113,10 @@ func Mine(
 				pprof.WriteHeapProfile(memProf)
 				profMutex.Unlock()
 			}
+			time.Sleep(1*time.Second)
+			runtime.GC()
+			runtime.GC()
+			runtime.GC()
 		}
 		if pc != nil {
 			pc.delete()
@@ -129,9 +134,7 @@ func Mine(
 func (m *Miner) initial() (<-chan store.Iterator, *Collectors) {
 	CPUs := runtime.NumCPU()
 	collectors := m.makeCollectors(CPUs)
-	m.Initial(func(sg *goiso.SubGraph) {
-		collectors.send(sg)
-	})
+	m.Initial(collectors.makeSend())
 	collectors.close()
 	return collectors.partsCh(), collectors
 }
@@ -362,29 +365,90 @@ func hash(bytes []byte) int {
 
 func (c *Collectors) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator)
-	done := make(chan bool)
-	for _, tree := range c.trees {
-		go func(tree store.SubGraphs) {
-			for part, next := makePartitions(tree)(); next != nil; part, next = next() {
-				out <- part
-			}
-			done <- true
-		}(tree)
-	}
 	go func() {
-		for _ = range c.trees {
-			<-done
+		for k, keys := c.keys()(); keys != nil; k, keys = keys() {
+			out <- c.partitionIterator(k)
 		}
 		close(out)
-		close(done)
 	}()
 	return out
 }
 
-func (c *Collectors) send(sg *goiso.SubGraph) {
-	label := sg.ShortLabel()
-	idx := hash(label) % len(c.chs)
-	c.chs[idx] <- &labelGraph{label, sg}
+func (c *Collectors) makeSend() func(*goiso.SubGraph) {
+	next := 0
+	return func(sg *goiso.SubGraph) {
+		label := sg.ShortLabel()
+		lg := &labelGraph{label, sg}
+		bkt := hash(label) % len(c.chs)
+		next = bkt
+		for i := 0; i < len(c.chs); i++ {
+			select {
+			case c.chs[next]<-lg:
+				return
+			default:
+				next = (next + 1) % len(c.chs)
+			}
+		}
+		c.chs[bkt]<-lg
+	}
+}
+
+func (c *Collectors) keys() (kit store.BytesIterator) {
+	its := make([]store.BytesIterator, len(c.trees))
+	peek := make([][]byte, len(c.trees))
+	for i, tree := range c.trees {
+		its[i] = tree.Keys()
+		peek[i], its[i] = its[i]()
+	}
+	getMin := func() int {
+		min := 0
+		for i := range peek {
+			if peek[i] == nil {
+				continue
+			}
+			if bytes.Compare(peek[i], peek[min]) < 0 {
+				min = i
+			}
+		}
+		return min
+	}
+	var last []byte = nil
+	kit = func() (item []byte, _ store.BytesIterator) {
+		item = last
+		for bytes.Equal(item, last) {
+			min := getMin()
+			if peek[min] == nil {
+				return nil, nil
+			}
+			item = peek[min]
+			peek[min], its[min] = its[min]()
+		}
+		last = item
+		return item, kit
+	}
+	return kit
+}
+
+func (c *Collectors) partitionIterator(key []byte) (pit store.Iterator) {
+	its := make([]store.Iterator, len(c.trees))
+	for i, tree := range c.trees {
+		its[i] = tree.Find(key)
+	}
+	j := 0
+	pit = func() (k []byte, sg *goiso.SubGraph, _ store.Iterator) {
+		for j < len(its) {
+			if its[j] == nil {
+				j++
+			} else {
+				k, sg, its[j] = its[j]()
+				if its[j] != nil {
+					return k, sg, pit
+				}
+			}
+		}
+		return nil, nil, nil
+	}
+	return pit
 }
 
 func (c *Collectors) size() int {
