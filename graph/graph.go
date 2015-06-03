@@ -122,7 +122,7 @@ func parseLine(line []byte) (line_type string, data []byte) {
 	return strings.TrimSpace(string(split[0])), bytes.TrimSpace(split[1])
 }
 
-func LoadGraph(reader io.Reader, nodeAttrs *bptree.BpTree) (graph *goiso.Graph, err error) {
+func LoadGraph(reader io.Reader, supportAttr string, nodeAttrs *bptree.BpTree, supportAttrs map[int]string) (graph *goiso.Graph, err error) {
 	var errors ParseErrors
 	G := goiso.NewGraph(100, 100)
 	graph = &G
@@ -135,7 +135,7 @@ func LoadGraph(reader io.Reader, nodeAttrs *bptree.BpTree) (graph *goiso.Graph, 
 		line_type, data := parseLine(line)
 		switch line_type {
 		case "vertex":
-			if err := LoadVertex(graph, vids, nodeAttrs, data); err != nil {
+			if err := LoadVertex(graph, supportAttr, vids, nodeAttrs, supportAttrs, data); err != nil {
 				errors = append(errors, err)
 			}
 		case "edge":
@@ -153,7 +153,7 @@ func LoadGraph(reader io.Reader, nodeAttrs *bptree.BpTree) (graph *goiso.Graph, 
 	return graph, errors
 }
 
-func LoadVertex(g *goiso.Graph, vids types.Map, nodeAttrs *bptree.BpTree, data []byte) (err error) {
+func LoadVertex(g *goiso.Graph, supportAttr string, vids types.Map, nodeAttrs *bptree.BpTree, supportAttrs map[int]string, data []byte) (err error) {
 	obj, err := ParseJson(data)
 	if err != nil {
 		return err
@@ -175,6 +175,12 @@ func LoadVertex(g *goiso.Graph, vids types.Map, nodeAttrs *bptree.BpTree, data [
 		err = nodeAttrs.Add(bid, data)
 		if err != nil {
 			return err
+		}
+		if supportAttr != "" {
+			if _, has := obj[supportAttr]; !has {
+				return fmt.Errorf("vertex did not have required supportAttr %v\n%v", supportAttr, string(data))
+			}
+			supportAttrs[vertex.Idx] = obj[supportAttr].(string)
 		}
 	}
 	return nil

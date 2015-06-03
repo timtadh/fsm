@@ -81,6 +81,10 @@ Options
     -m, --min-vertices=<int>            minimum number of nodes to report
                                         (5 by default)
     --start-prefix=<string>             prefix of nodes to use in initial set
+    --support-attr=<string>             an attribute in the json of the node which
+                                        should be unique when counting support.
+                                        Note the value of this attr must be a string
+                                        or things will fail horribly!
     --max-rounds=<int>                  maxium number of rounds to do
     --maximal                           only report maximal frequent subgraphs
     -c, --cache=<path>                  use an on disk cache. put the cache files
@@ -245,6 +249,7 @@ func main() {
 			"min-vertices=",
 			"max-rounds=",
 			"start-prefix=",
+			"support-attr=",
 			"cache=",
 			"mem-cache",
 			"mem-profile=",
@@ -263,6 +268,7 @@ func main() {
 	minVert := 5
 	maxRounds := -1
 	startPrefix := ""
+	supportAttr := ""
 	maximal := false
 	cache := ""
 	memCache := false
@@ -287,6 +293,8 @@ func main() {
 			minVert = ParseInt(oa.Arg())
 		case "--start-prefix":
 			startPrefix = oa.Arg()
+		case "--support-attr":
+			supportAttr = oa.Arg()
 		case "--max-rounds":
 			maxRounds = ParseInt(oa.Arg())
 		case "--cache":
@@ -374,7 +382,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	G, err := graph.LoadGraph(reader, nodeAttrs)
+	supportAttrs := make(map[int]string)
+	G, err := graph.LoadGraph(reader, supportAttr, nodeAttrs, supportAttrs)
 	if err != nil {
 		log.Println("Error loading the graph")
 		log.Panic(err)
@@ -448,9 +457,9 @@ func main() {
 	}
 	
 	embeddings := mine.Mine(
-		G,
+		G, supportAttrs,
 		support, maxSupport, minVert, maxRounds,
-		startPrefix,
+		startPrefix, supportAttr,
 		vertexExtend,
 		maker,
 		memProfFile,

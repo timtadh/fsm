@@ -24,14 +24,13 @@ package mine
  */
 
 import (
-	"fmt"
 	"bytes"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
 	"runtime"
 	"runtime/pprof"
-	// "time"
 	"strings"
 	"sync"
 )
@@ -47,20 +46,24 @@ type partitionIterator func() (part store.Iterator, next partitionIterator)
 
 type Miner struct {
 	Graph *goiso.Graph
+	SupportAttrs map[int]string
 	VertexExtend bool
 	Support int
 	MinVertices int
 	MaxSupport int
 	MaxRounds int
 	StartPrefix string
+	SupportAttr string
 	Report chan<- *goiso.SubGraph
 	MakeStore func() store.SubGraphs
 }
 
 func Mine(
 	G *goiso.Graph,
+	supportAttrs map[int]string,
 	support, maxSupport, minVertices, maxRounds int,
 	startPrefix string,
+	supportAttr string,
 	vertexExtend bool,
 	makeStore func() store.SubGraphs,
 	memProf io.Writer,
@@ -77,11 +80,13 @@ func Mine(
 	// }(ticker.C)
 	m := &Miner{
 		Graph: G,
+		SupportAttrs: supportAttrs,
 		Support: support,
 		MaxSupport: maxSupport,
 		MinVertices: minVertices,
 		MaxRounds: maxRounds,
 		StartPrefix: startPrefix,
+		SupportAttr: supportAttr,
 		VertexExtend: vertexExtend,
 		Report: fsg,
 		MakeStore: makeStore,
@@ -229,6 +234,29 @@ func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 	return non_overlapping
 }
 
+func (m *Miner) countSupport(sgs []*goiso.SubGraph) (support int) {
+	if m.SupportAttr == "" {
+		return len(sgs)
+	}
+	S := getSet()
+	for _, sg := range sgs {
+		has := false
+		for _, v := range sg.V {
+			a := types.String(m.SupportAttrs[v.Id])
+			has = has || S.Has(a)
+		}
+		if !has {
+			support++
+			for _, v := range sg.V {
+				a := types.String(m.SupportAttrs[v.Id])
+				S.Add(a)
+			}
+		}
+	}
+	releaseSet(S)
+	return support
+}
+
 func (m *Miner) filterAndExtend(N int, parts <-chan store.Iterator, send func(*goiso.SubGraph)) {
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
@@ -251,7 +279,7 @@ func (m *Miner) worker(in <-chan store.Iterator, send func(*goiso.SubGraph), don
 
 func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
 	non_overlapping := m.nonOverlapping(part)
-	if len(non_overlapping) >= m.Support {
+	if m.countSupport(non_overlapping) >= m.Support {
 		for _, sg := range non_overlapping {
 			if len(sg.V) >= m.MinVertices {
 				m.Report<-sg
