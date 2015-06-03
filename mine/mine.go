@@ -103,7 +103,7 @@ func Mine(
 			pc = collectors
 			collectors = m.makeCollectors(CPUs*2)
 			log.Printf("starting filtering %v", round)
-			m.filterAndExtend(CPUs*4, p_it, collectors.makeSend())
+			m.filterAndExtend(CPUs*4, p_it, collectors.send)
 			collectors.close()
 			size := collectors.size() 
 			if size <= 0 || (m.MaxRounds > 0 && round >= m.MaxRounds) {
@@ -136,7 +136,7 @@ func Mine(
 func (m *Miner) initial() (<-chan store.Iterator, *Collectors) {
 	CPUs := runtime.NumCPU()
 	collectors := m.makeCollectors(CPUs)
-	m.Initial(collectors.makeSend())
+	m.Initial(collectors.send)
 	collectors.close()
 	return collectors.partsCh(), collectors
 }
@@ -169,43 +169,6 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 	return s
 }
 
-var sliceRecycler chan []*goiso.SubGraph
-var setRecycler chan *set.SortedSet
-
-func init() {
-	sliceRecycler = make(chan []*goiso.SubGraph, 50)
-	setRecycler = make(chan *set.SortedSet, 50)
-}
-
-func getSlice() []*goiso.SubGraph {
-	select {
-	case slice := <-sliceRecycler: return slice
-	default: return make([]*goiso.SubGraph, 0, 100)
-	}
-}
-
-func releaseSlice(slice []*goiso.SubGraph) {
-	slice = slice[0:0]
-	select {
-	case sliceRecycler<-slice: return
-	default: return
-	}
-}
-
-func getSet() *set.SortedSet {
-	select {
-	case set := <-setRecycler: return set
-	default: return set.NewSortedSet(100)
-	}
-}
-
-func releaseSet(set *set.SortedSet) {
-	set.Clear()
-	select {
-	case setRecycler<-set: return
-	default: return
-	}
-}
 
 func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 	vids := getSet()
@@ -325,19 +288,6 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 	}
 }
 
-func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
-	keys := sgs.Keys()
-	p_it = func() (part store.Iterator, next partitionIterator) {
-		var key []byte
-		key, keys = keys()
-		if keys == nil {
-			return nil, nil
-		}
-		return sgs.Find(key), p_it
-	}
-	return p_it
-}
-
 type Collectors struct {
 	trees []store.SubGraphs
 	chs []chan<- *labelGraph
@@ -403,7 +353,7 @@ func hash(bytes []byte) int {
 }
 
 func (c *Collectors) partsCh() <-chan store.Iterator {
-	out := make(chan store.Iterator)
+	out := make(chan store.Iterator, 100)
 	go func() {
 		for k, keys := c.keys()(); keys != nil; k, keys = keys() {
 			out <- c.partitionIterator(k)
@@ -413,36 +363,33 @@ func (c *Collectors) partsCh() <-chan store.Iterator {
 	return out
 }
 
-func (c *Collectors) makeSend() func(*goiso.SubGraph) {
-	next := 0
-	return func(sg *goiso.SubGraph) {
-		label := sg.ShortLabel()
-		lg := &labelGraph{label, sg}
-		bkt := hash(label) % len(c.chs)
-		next = bkt
-		{
-			key := label
-			if len(key) < 0 {
-				panic(fmt.Errorf("Key was a bad value %d %v %p\n%p", len(key), key, key, sg))
-			}
-			if sg == nil {
-				panic(fmt.Errorf("sg was a nil %d %v %p\n%p", len(key), key, key, sg))
-			}
-			value := sg.Serialize()
-			if len(value) < 0 {
-				panic(fmt.Errorf("Could not serialize sg, %v\n%v\n%v", len(value), sg, value))
-			}
+func (c *Collectors) send(sg *goiso.SubGraph) {
+	label := sg.ShortLabel()
+	lg := &labelGraph{label, sg}
+	bkt := hash(label) % len(c.chs)
+	next := bkt
+	{
+		key := label
+		if len(key) < 0 {
+			panic(fmt.Errorf("Key was a bad value %d %v %p\n%p", len(key), key, key, sg))
 		}
-		for i := 0; i < len(c.chs); i++ {
-			select {
-			case c.chs[next]<-lg:
-				return
-			default:
-				next = (next + 1) % len(c.chs)
-			}
+		if sg == nil {
+			panic(fmt.Errorf("sg was a nil %d %v %p\n%p", len(key), key, key, sg))
 		}
-		c.chs[bkt]<-lg
+		value := sg.Serialize()
+		if len(value) < 0 {
+			panic(fmt.Errorf("Could not serialize sg, %v\n%v\n%v", len(value), sg, value))
+		}
 	}
+	for i := 0; i < len(c.chs); i++ {
+		select {
+		case c.chs[next]<-lg:
+			return
+		default:
+			next = (next + 1) % len(c.chs)
+		}
+	}
+	c.chs[bkt]<-lg
 }
 
 func (c *Collectors) keys() (kit store.BytesIterator) {
