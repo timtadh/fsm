@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"log"
 	"sync"
 )
@@ -132,7 +133,16 @@ func (self *Fs2BpTree) Count(key []byte) int {
 func (self *Fs2BpTree) Add(key []byte, sg *goiso.SubGraph) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+	if len(key) < 0 {
+		panic(fmt.Errorf("Key was a bad value %d %v %p\n%p", len(key), key, key, sg))
+	}
+	if sg == nil {
+		panic(fmt.Errorf("sg was a nil %d %v %p\n%p", len(key), key, key, sg))
+	}
 	value := sg.Serialize()
+	if len(value) < 0 {
+		panic(fmt.Errorf("Could not serialize sg, %v\n%v\n%v", len(value), sg, value))
+	}
 	assert_ok(self.bpt.Add(key, value))
 	has, err := self.bpt.Has(key)
 	assert_ok(err)

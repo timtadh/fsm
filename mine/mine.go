@@ -24,13 +24,14 @@ package mine
  */
 
 import (
+	"fmt"
 	"bytes"
 	"hash/fnv"
 	"io"
 	"log"
 	"runtime"
 	"runtime/pprof"
-	"time"
+	// "time"
 	"strings"
 	"sync"
 )
@@ -68,12 +69,12 @@ func Mine(
 ) {
 	CPUs := runtime.NumCPU()
 	fsg := make(chan *goiso.SubGraph)
-	ticker := time.NewTicker(10 * time.Second)
-	go func(ch <-chan time.Time) {
-		for _ = range ch {
-			runtime.GC()
-		}
-	}(ticker.C)
+	// ticker := time.NewTicker(5000 * time.Millisecond)
+	// go func(ch <-chan time.Time) {
+	// 	for _ = range ch {
+	// 		runtime.GC()
+	// 	}
+	// }(ticker.C)
 	m := &Miner{
 		Graph: G,
 		Support: support,
@@ -104,7 +105,7 @@ func Mine(
 				break
 			}
 			p_it = collectors.partsCh()
-			runtime.GC()
+			// runtime.GC()
 			log.Printf("finished %v with %v", round, size)
 			log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 			round++
@@ -113,10 +114,6 @@ func Mine(
 				pprof.WriteHeapProfile(memProf)
 				profMutex.Unlock()
 			}
-			time.Sleep(1*time.Second)
-			runtime.GC()
-			runtime.GC()
-			runtime.GC()
 		}
 		if pc != nil {
 			pc.delete()
@@ -124,7 +121,7 @@ func Mine(
 		if collectors != nil {
 			collectors.delete()
 		}
-		ticker.Stop()
+		// ticker.Stop()
 		close(m.Report)
 	}
 	go miner()
@@ -325,6 +322,20 @@ type labelGraph struct {
 
 func (m *Miner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	for lg := range in {
+		{
+			key := lg.label
+			sg := lg.sg
+			if len(key) < 0 {
+				panic(fmt.Errorf("Key was a bad value %d %v %p\n%p", len(key), key, key, sg))
+			}
+			if sg == nil {
+				panic(fmt.Errorf("sg was a nil %d %v %p\n%p", len(key), key, key, sg))
+			}
+			value := sg.Serialize()
+			if len(value) < 0 {
+				panic(fmt.Errorf("Could not serialize sg, %v\n%v\n%v", len(value), sg, value))
+			}
+		}
 		if tree.Count(lg.label) > m.MaxSupport + 1 {
 			continue
 		}
@@ -381,6 +392,19 @@ func (c *Collectors) makeSend() func(*goiso.SubGraph) {
 		lg := &labelGraph{label, sg}
 		bkt := hash(label) % len(c.chs)
 		next = bkt
+		{
+			key := label
+			if len(key) < 0 {
+				panic(fmt.Errorf("Key was a bad value %d %v %p\n%p", len(key), key, key, sg))
+			}
+			if sg == nil {
+				panic(fmt.Errorf("sg was a nil %d %v %p\n%p", len(key), key, key, sg))
+			}
+			value := sg.Serialize()
+			if len(value) < 0 {
+				panic(fmt.Errorf("Could not serialize sg, %v\n%v\n%v", len(value), sg, value))
+			}
+		}
 		for i := 0; i < len(c.chs); i++ {
 			select {
 			case c.chs[next]<-lg:
