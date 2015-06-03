@@ -326,7 +326,7 @@ func (m *Miner) makeCollectors(N int) *Collectors {
 	chs := make([]chan<- *labelGraph, 0, N)
 	for i := 0; i < N; i++ {
 		tree := m.MakeStore()
-		ch := make(chan *labelGraph)
+		ch := make(chan *labelGraph, 1)
 		trees = append(trees, tree)
 		chs = append(chs, ch)
 		go m.collector(tree, ch)
