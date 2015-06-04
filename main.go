@@ -56,7 +56,7 @@ func init() {
 }
 
 var ErrorCodes map[string]int = map[string]int{
-	"usage":   1,
+	"usage":   0,
 	"version": 2,
 	"opts":    3,
 	"badint":  5,
@@ -64,11 +64,27 @@ var ErrorCodes map[string]int = map[string]int{
 	"badfile": 7,
 }
 
-var UsageMessage string = "fsm [options] -s <support> -o <output-dir> <graphs>"
+var UsageMessage string = "fsm --help"
 var ExtendedMessage string = `
-fsm - frequent subgraph mine the graph(s)
+fsm - frequent subgraph mining
 
-Options
+fsm is a multi-mode program. It is really several programs in one. The
+first argument specifies the mode to use. To see the available modes run:
+
+    fsm --modes
+
+Global Options
+    -h, --help                          view this message
+    --modes                             show the available modes
+
+Modes
+    breadth                             generate the frequent subgraphs in a breadth
+                                        first manner.
+
+Usage for breadth
+    fsm breadth [options] -s <support> -o <output-dir> <graphs>
+
+Options for 'breadth'
     -h, --help                          print this message
     -o, --output=<path>                 path to output directory
     --vertex-extend                     extend the subgraphs one vertex at a
@@ -234,10 +250,48 @@ func AssertFile(fname string) string {
 }
 
 func main() {
+	args, optargs, err := getopt.GetOpt(
+		os.Args[1:],
+		"h", []string{ "help", "modes" },
+	)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "could not process your arguments (perhaps you forgot a mode?) try:")
+		fmt.Fprintf(os.Stderr, "$ %v breadth %v\n", os.Args[0], strings.Join(os.Args[1:], " "))
+		Usage(ErrorCodes["opts"])
+	}
+
+	for _, oa := range optargs {
+		switch oa.Opt() {
+		case "-h", "--help":
+			Usage(0)
+		case "--modes":
+			fmt.Println("breadth")
+			os.Exit(0)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown flag '%v'\n", oa.Opt())
+			Usage(ErrorCodes["opts"])
+		}
+	}
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "You must supply a mode (eg. breadth)\n")
+		Usage(ErrorCodes["opts"])
+	}
+	switch args[0] {
+	case "breadth":
+		Breadth(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown mode %v\n", args[0])
+		Usage(ErrorCodes["opts"])
+	}
+	log.Println("Done!")
+}
+
+func Breadth(argv []string) {
 
 	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 	args, optargs, err := getopt.GetOpt(
-		os.Args[1:],
+		argv,
 		"hs:m:o:",
 		[]string{
 			"help",
