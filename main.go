@@ -24,7 +24,6 @@ package main
  */
 
 import (
-	"bytes"
 	"compress/gzip"
 	"encoding/binary"
 	// "encoding/hex"
@@ -365,12 +364,7 @@ func main() {
 	}
 
 	allPath := path.Join(outputDir, "all-embeddings.bptree")
-	labelsPath := path.Join(outputDir, "labels.bptree")
 	nodePath := path.Join(outputDir, "node-attrs.bptree")
-	maxEPath := path.Join(outputDir, "maximal-embeddings.dot")
-	maxPPath := path.Join(outputDir, "maximal-patterns.dot")
-	allEPath := path.Join(outputDir, "all-embeddings.dot")
-	allPPath := path.Join(outputDir, "all-patterns.dot")
 
 	nodeBf, err := fmap.CreateBlockFile(nodePath)
 	if err != nil {
@@ -392,44 +386,6 @@ func main() {
 
 	all := store.NewFs2BpTree(G, allPath)
 	defer all.Close()
-
-	labelsBf, err := fmap.CreateBlockFile(labelsPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer labelsBf.Close()
-	labels, err := bptree.New(labelsBf, -1, 1)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var maxe io.Writer
-	var maxp io.Writer
-	if maximal {
-		max, err := os.Create(maxEPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer max.Close()
-		maxe = max
-		max, err = os.Create(maxPPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer max.Close()
-		maxp = max
-	}
-
-	alle, err := os.Create(allEPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer alle.Close()
-	allp, err := os.Create(allPPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer allp.Close()
 
 	memMaker := func() store.SubGraphs {
 		return store.NewMemBpTree(127)
@@ -470,38 +426,9 @@ func main() {
 
 	if maximal {
 		log.Print("Finished mining, about to compute maximal frequent subgraphs.")
-		var cur []byte
-		var had bool = false
-		for key, sg, next := all.Backward()(); next != nil; key, sg, next = next() {
-			if cur != nil && !bytes.Equal(key, cur) {
-				if !had {
-					doOutput(maxe, maxp, nodeAttrs, all, cur)
-				}
-				had = false
-			}
-			has, err := labels.Has(key)
-			if err != nil {
-				log.Fatal(err)
-			}
-			if has {
-				had = true
-			}
-			if !bytes.Equal(cur, key) {
-				// add all of the (potential) parents of this node
-				for eIdx := range sg.E {
-					addToLabels(labels, sg.RemoveEdge(eIdx).ShortLabel())
-				}
-			}
-			cur = key
-		}
-		if !had && cur != nil {
-			doOutput(maxe, maxp, nodeAttrs, all, cur)
-		}
+		writeMaximalSubGraphs(all, nodeAttrs, outputDir)
 	}
 	log.Print("Finished mining, writing output.")
-	for key, next := all.Keys()(); next != nil; key, next = next() {
-		doOutput(alle, allp, nodeAttrs, all, key)
-	}
 	/*
 	for i, c := range G.Colors {
 		fmt.Printf("%d '%v'\n", i, c)
@@ -509,20 +436,44 @@ func main() {
 	log.Print("Done!")
 }
 
-func addToLabels(labels *bptree.BpTree, label []byte) {
-	has, err := labels.Has(label)
+func writeAllPatterns(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir string) {
+	alle, err := os.Create(path.Join(outputDir, "all-embeddings.dot"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	if !has {
-		err = labels.Add(label, []byte{0})
-		if err != nil {
-			log.Fatal(err)
-		}
+	defer alle.Close()
+	allp, err := os.Create(path.Join(outputDir, "all-patterns.dot"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer allp.Close()
+	for key, next := all.Keys()(); next != nil; key, next = next() {
+		writePattern(alle, allp, nodeAttrs, all, key)
 	}
 }
 
-func doOutput(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
+func writeMaximalSubGraphs(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir string) {
+	maxe, err := os.Create(path.Join(outputDir, "maximal-embeddings.dot"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer maxe.Close()
+	maxp, err := os.Create(path.Join(outputDir, "maximal-patterns.dot"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer maxp.Close()
+	keys, err := mine.MaximalSubGraphs(all, nodeAttrs, outputDir) 
+	if err != nil {
+		log.Fatal(err)
+	}
+	for key := range keys {
+		writePattern(maxe, maxp, nodeAttrs, all, key)
+	}
+}
+
+
+func writePattern(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
 	i := 0
 	for _, sg, next := all.Find(key)(); next != nil; _, sg, next = next() {
 		attrs := make(map[int]map[string]interface{})
