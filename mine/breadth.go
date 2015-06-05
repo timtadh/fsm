@@ -24,7 +24,6 @@ package mine
  */
 
 import (
-	"bytes"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -353,6 +352,47 @@ func hash(bytes []byte) int {
 }
 
 func (c *Collectors) partsCh() <-chan store.Iterator {
+	out := make(chan store.Iterator)
+	done := make(chan bool)
+	for _, tree := range c.trees {
+		go func(tree store.SubGraphs) {
+			for part, next := makePartitions(tree)(); next != nil; part, next = next() {
+				out <- part
+			}
+			done <- true
+		}(tree)
+	}
+	go func() {
+		for _ = range c.trees {
+			<-done
+		}
+		close(out)
+		close(done)
+	}()
+	return out
+}
+
+func (c *Collectors) send(sg *goiso.SubGraph) {
+	label := sg.ShortLabel()
+	idx := hash(label) % len(c.chs)
+	c.chs[idx] <- &labelGraph{label, sg}
+}
+
+func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
+	keys := sgs.Keys()
+	p_it = func() (part store.Iterator, next partitionIterator) {
+		var key []byte
+		key, keys = keys()
+		if keys == nil {
+			return nil, nil
+		}
+		return bufferedIterator(sgs.Find(key), 10), p_it
+	}
+	return p_it
+}
+
+/*
+func (c *Collectors) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator, 100)
 	go func() {
 		for k, keys := c.keys()(); keys != nil; k, keys = keys() {
@@ -449,6 +489,7 @@ func (c *Collectors) partitionIterator(key []byte) (pit store.Iterator) {
 	}
 	return pit
 }
+*/
 
 func (c *Collectors) size() int {
 	sum := 0
