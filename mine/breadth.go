@@ -356,7 +356,7 @@ func (c *Collectors) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator, 100)
 	go func() {
 		for k, keys := c.keys()(); keys != nil; k, keys = keys() {
-			out <- c.partitionIterator(k)
+			out <- bufferedIterator(c.partitionIterator(k), 10)
 		}
 		close(out)
 	}()
