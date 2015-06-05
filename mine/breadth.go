@@ -356,7 +356,7 @@ func (c *Collectors) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator, 100)
 	go func() {
 		for k, keys := c.keys()(); keys != nil; k, keys = keys() {
-			out <- bufferedIterator(c.partitionIterator(k), 10)
+			out <- c.partitionIterator(k)
 		}
 		close(out)
 	}()
@@ -431,7 +431,7 @@ func (c *Collectors) keys() (kit store.BytesIterator) {
 func (c *Collectors) partitionIterator(key []byte) (pit store.Iterator) {
 	its := make([]store.Iterator, len(c.trees))
 	for i, tree := range c.trees {
-		its[i] = tree.Find(key)
+		its[i] = bufferedIterator(tree.Find(key), 10)
 	}
 	j := 0
 	pit = func() (k []byte, sg *goiso.SubGraph, _ store.Iterator) {
