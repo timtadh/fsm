@@ -380,19 +380,17 @@ func Breadth(argv []string) {
 		Usage(ErrorCodes["opts"])
 	}
 
-	var reader io.Reader
-	var close_reader func()
-	if len(args) <= 0 {
-		reader = os.Stdin
-		close_reader = func() {}
+	var getReader func() (io.Reader, func())
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "You must supply the graphs as a file")
+		Usage(ErrorCodes["opts"])
 	} else {
 		if len(args) != 1 {
 			fmt.Fprintln(os.Stderr, "Expected a path to the graph file")
 			Usage(ErrorCodes["opts"])
 		}
-		reader, close_reader = Input(args[0])
+		getReader = func() (io.Reader, func()) { return Input(args[0]) }
 	}
-	defer close_reader()
 
 	if cpuProfile != "" {
 		f, err := os.Create(cpuProfile)
@@ -431,7 +429,7 @@ func Breadth(argv []string) {
 	}
 
 	supportAttrs := make(map[int]string)
-	G, err := graph.LoadGraph(reader, supportAttr, nodeAttrs, supportAttrs)
+	G, err := graph.LoadGraph(getReader, supportAttr, nodeAttrs, supportAttrs)
 	if err != nil {
 		log.Println("Error loading the graph")
 		log.Panic(err)

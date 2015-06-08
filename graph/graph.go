@@ -122,12 +122,27 @@ func parseLine(line []byte) (line_type string, data []byte) {
 	return strings.TrimSpace(string(split[0])), bytes.TrimSpace(split[1])
 }
 
-func LoadGraph(reader io.Reader, supportAttr string, nodeAttrs *bptree.BpTree, supportAttrs map[int]string) (graph *goiso.Graph, err error) {
+func graphSize(reader io.Reader) (V, E int) {
+	ProcessLines(reader, func(line []byte) {
+		if bytes.HasPrefix(line, []byte("vertex")) {
+			V++
+		} else if bytes.HasPrefix(line, []byte("edge")) {
+			E++
+		}
+	})
+	return V, E
+}
+
+func LoadGraph(getInput func() (io.Reader, func()), supportAttr string, nodeAttrs *bptree.BpTree, supportAttrs map[int]string) (graph *goiso.Graph, err error) {
 	var errors ParseErrors
-	G := goiso.NewGraph(100, 100)
+	reader, closer := getInput()
+	G := goiso.NewGraph(graphSize(reader))
+	closer()
 	graph = &G
 	vids := hashtable.NewLinearHash() // int64 ==> *goiso.Vertex
 
+	reader, closer = getInput()
+	defer closer()
 	ProcessLines(reader, func(line []byte) {
 		if len(line) == 0 || !bytes.Contains(line, []byte("\t")) {
 			return
@@ -230,3 +245,4 @@ func SerializeEdge(g *goiso.Graph, e *goiso.Edge) ([]byte, error) {
 	obj["label"] = g.Colors[e.Color]
 	return renderJson(obj)
 }
+
