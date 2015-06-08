@@ -184,7 +184,7 @@ func LoadVertex(g *goiso.Graph, supportAttr string, vids types.Map, nodeAttrs *b
 	if err != nil {
 		return err
 	}
-	{
+	if nodeAttrs != nil {
 		bid := make([]byte, 4)
 		binary.BigEndian.PutUint32(bid, uint32(vertex.Idx))
 		err = nodeAttrs.Add(bid, data)

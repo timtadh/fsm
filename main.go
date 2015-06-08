@@ -308,6 +308,7 @@ func Breadth(argv []string) {
 			"mem-profile=",
 			"cpu-profile=",
 			"output=",
+			"no-attrs",
 		},
 	)
 	if err != nil {
@@ -328,6 +329,7 @@ func Breadth(argv []string) {
 	memProfile := ""
 	cpuProfile := ""
 	outputDir := ""
+	noAttrs := false
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -358,6 +360,8 @@ func Breadth(argv []string) {
 			memProfile = AssertFile(oa.Arg())
 		case "--cpu-profile":
 			cpuProfile = AssertFile(oa.Arg())
+		case "--no-attrs":
+			noAttrs = true
 		}
 	}
 
@@ -418,14 +422,17 @@ func Breadth(argv []string) {
 	allPath := path.Join(outputDir, "all-embeddings.bptree")
 	nodePath := path.Join(outputDir, "node-attrs.bptree")
 
-	nodeBf, err := fmap.CreateBlockFile(nodePath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer nodeBf.Close()
-	nodeAttrs, err := bptree.New(nodeBf, 4, -1)
-	if err != nil {
-		log.Fatal(err)
+	var nodeAttrs *bptree.BpTree = nil
+	if !noAttrs {
+		nodeBf, err := fmap.CreateBlockFile(nodePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer nodeBf.Close()
+		nodeAttrs, err = bptree.New(nodeBf, 4, -1)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	supportAttrs := make(map[int]string)
@@ -528,24 +535,6 @@ func writeMaximalSubGraphs(all store.SubGraphs, nodeAttrs *bptree.BpTree, output
 func writePattern(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
 	i := 0
 	for _, sg, next := all.Find(key)(); next != nil; _, sg, next = next() {
-		attrs := make(map[int]map[string]interface{})
-		for _, v := range sg.V {
-			bid := make([]byte, 4)
-			binary.BigEndian.PutUint32(bid, uint32(v.Id))
-			err := nodeAttrs.DoFind(
-				bid,
-				func(key, value []byte) error {
-					a, err := graph.ParseJson(value)
-					if err != nil {
-						log.Fatal(err)
-					}
-					attrs[v.Id] = a
-					return nil
-				})
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
 		if i == 0 {
 			fmt.Fprintln(patterns, "//", sg.Label())
 			fmt.Fprintln(patterns)
@@ -553,7 +542,29 @@ func writePattern(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all 
 			fmt.Fprintln(embeddings, "//", sg.Label())
 			fmt.Fprintln(embeddings)
 		}
-		fmt.Fprintln(embeddings, sg.StringWithAttrs(attrs))
+		if nodeAttrs != nil {
+			attrs := make(map[int]map[string]interface{})
+			for _, v := range sg.V {
+				bid := make([]byte, 4)
+				binary.BigEndian.PutUint32(bid, uint32(v.Id))
+				err := nodeAttrs.DoFind(
+					bid,
+					func(key, value []byte) error {
+						a, err := graph.ParseJson(value)
+						if err != nil {
+							log.Fatal(err)
+						}
+						attrs[v.Id] = a
+						return nil
+					})
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+			fmt.Fprintln(embeddings, sg.StringWithAttrs(attrs))
+		} else {
+			fmt.Fprintln(embeddings, sg.String())
+		}
 		i++
 	}
 	fmt.Fprintln(patterns)
