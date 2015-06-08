@@ -269,6 +269,7 @@ func main() {
 			Usage(0)
 		case "--modes":
 			fmt.Println("breadth")
+			fmt.Println("depth")
 			os.Exit(0)
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown flag '%v'\n", oa.Opt())
@@ -282,10 +283,175 @@ func main() {
 	switch args[0] {
 	case "breadth":
 		Breadth(args[1:])
+	case "depth":
+		Depth(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown mode %v\n", args[0])
 		Usage(ErrorCodes["opts"])
 	}
+	log.Println("Done!")
+}
+
+func Depth(argv []string) {
+	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
+	args, optargs, err := getopt.GetOpt(
+		argv,
+		"hs:m:o:",
+		[]string{
+			"help",
+			"support=",
+			"max-support=",
+			"min-vertices=",
+			"cache=",
+			"mem-cache",
+			"mem-profile=",
+			"cpu-profile=",
+			"output=",
+		},
+	)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		Usage(ErrorCodes["opts"])
+	}
+
+	support := -1
+	maxSupport := -1
+	minVertices := 5
+	cache := ""
+	memCache := false
+	memProfile := ""
+	cpuProfile := ""
+	outputDir := ""
+	for _, oa := range optargs {
+		switch oa.Opt() {
+		case "-h", "--help":
+			Usage(0)
+		case "-o", "--output":
+			outputDir = AssertDir(oa.Arg())
+		case "-s", "--support":
+			support = ParseInt(oa.Arg())
+		case "--max-support":
+			maxSupport = ParseInt(oa.Arg())
+		case "-m", "--min-vertices":
+			minVertices = ParseInt(oa.Arg())
+		case "--cache":
+			cache = AssertDir(oa.Arg())
+		case "--mem-cache":
+			memCache = true
+		case "--mem-profile":
+			memProfile = AssertFile(oa.Arg())
+		case "--cpu-profile":
+			cpuProfile = AssertFile(oa.Arg())
+		}
+	}
+
+	if support < 1 {
+		fmt.Fprintf(os.Stderr, "You must supply a support greater than 0, you gave %v\n", support)
+		Usage(ErrorCodes["opts"])
+	}
+
+	if maxSupport < 1 {
+		maxSupport = support*100
+	}
+
+	if outputDir == "" {
+		fmt.Fprintf(os.Stderr, "You must supply an output file (use -o)\n")
+		Usage(ErrorCodes["opts"])
+	}
+
+	if memCache && cache != "" {
+		fmt.Fprintf(os.Stderr, "You cannot supply both --cache and --mem-cache")
+		Usage(ErrorCodes["opts"])
+	}
+
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "Expected a path to the graph file")
+		Usage(ErrorCodes["opts"])
+	}
+	getReader := func() (io.Reader, func()) { return Input(args[0]) }
+
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+		err = pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	var memProfFile io.WriteCloser
+	if memProfile != "" {
+		f, err := os.Create(memProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		memProfFile = f
+		defer f.Close()
+	}
+
+	allPath := path.Join(outputDir, "all-embeddings.bptree")
+	nodePath := path.Join(outputDir, "node-attrs.bptree")
+
+	nodeBf, err := fmap.CreateBlockFile(nodePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nodeBf.Close()
+	nodeAttrs, err := bptree.New(nodeBf, 4, -1)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	G, err := graph.LoadGraph(getReader, "", nodeAttrs, nil)
+	if err != nil {
+		log.Println("Error loading the graph")
+		log.Panic(err)
+	}
+	log.Print("Loaded graph, about to start mining")
+
+	all := store.NewFs2BpTree(G, allPath)
+	defer all.Close()
+
+	memMaker := func() store.SubGraphs {
+		return store.NewMemBpTree(127)
+	}
+
+	count := 0
+	fsMaker := func() store.SubGraphs {
+		name := fmt.Sprintf("fsm_bptree_%d", count)
+		count++
+		path := path.Join(cache, name)
+		return store.NewFs2BpTree(G, path)
+	}
+
+	memFsMaker := func() store.SubGraphs {
+		return store.AnonFs2BpTree(G)
+	}
+
+	var maker func() store.SubGraphs
+	if memCache {
+		maker = memFsMaker
+	} else if cache != "" {
+		maker = fsMaker
+	} else {
+		maker = memMaker
+	}
+
+	embeddings := mine.Depth(
+		G,
+		support, maxSupport, minVertices,
+		maker,
+		memProfFile,
+	)
+	for sg := range embeddings {
+		all.Add(sg.ShortLabel(), sg)
+	}
+	log.Println("Finished mining! Writing output...")
+	writeAllPatterns(all, nodeAttrs, outputDir)
 	log.Println("Done!")
 }
 
@@ -390,17 +556,11 @@ func Breadth(argv []string) {
 		Usage(ErrorCodes["opts"])
 	}
 
-	var getReader func() (io.Reader, func())
-	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "You must supply the graphs as a file")
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "Expected a path to the graph file")
 		Usage(ErrorCodes["opts"])
-	} else {
-		if len(args) != 1 {
-			fmt.Fprintln(os.Stderr, "Expected a path to the graph file")
-			Usage(ErrorCodes["opts"])
-		}
-		getReader = func() (io.Reader, func()) { return Input(args[0]) }
 	}
+	getReader := func() (io.Reader, func()) { return Input(args[0]) }
 
 	if cpuProfile != "" {
 		f, err := os.Create(cpuProfile)
@@ -477,7 +637,7 @@ func Breadth(argv []string) {
 		maker = memMaker
 	}
 	
-	embeddings := mine.Mine(
+	embeddings := mine.Breadth(
 		G, supportAttrs,
 		support, maxSupport, minVert, maxRounds,
 		startPrefix, supportAttr,
@@ -495,10 +655,6 @@ func Breadth(argv []string) {
 	}
 	log.Print("Finished mining, writing output.")
 	writeAllPatterns(all, nodeAttrs, outputDir)
-	/*
-	for i, c := range G.Colors {
-		fmt.Printf("%d '%v'\n", i, c)
-	}*/
 	log.Print("Done!")
 }
 
