@@ -1,33 +1,45 @@
 package mine
 
 import (
-	"fmt"
+	"encoding/binary"
 	"io"
-	"hash/fnv"
-	"reflect"
-	"unsafe"
+	"log"
+	"math/rand"
+	"os"
 )
 
 import (
 	"github.com/timtadh/data-structures/types"
-	"github.com/timtadh/data-structures/set"
 	"github.com/timtadh/goiso"
 	"github.com/timtadh/fsm/store"
 )
 
+func init() {
+	if urandom, err := os.Open("/dev/urandom"); err != nil {
+		panic(err)
+	} else {
+		seed := make([]byte, 8)
+		if _, err := urandom.Read(seed); err == nil {
+			rand.Seed(int64(binary.BigEndian.Uint64(seed)))
+		}
+		urandom.Close()
+	}
+}
 
 type DepthMiner struct {
 	Graph *goiso.Graph
 	Support int
 	MaxSupport int
 	MinVertices int
+	MaxQueueSize int
 	Report chan *goiso.SubGraph
 	MakeStore func() store.SubGraphs
+	seen store.SubGraphs
 }
 
 func Depth(
 	G *goiso.Graph,
-	support, maxSupport, minVertices int,
+	support, maxSupport, minVertices, maxQueueSize int,
 	makeStore func() store.SubGraphs,
 	memProf io.Writer,
 ) (
@@ -38,8 +50,10 @@ func Depth(
 		Support: support,
 		MaxSupport: maxSupport,
 		MinVertices: minVertices,
+		MaxQueueSize: maxQueueSize,
 		Report: make(chan *goiso.SubGraph),
 		MakeStore: makeStore,
+		seen: makeStore(),
 	}
 
 	go m.mine()
@@ -48,154 +62,118 @@ func Depth(
 }
 
 type partition []*goiso.SubGraph
-
-type extension struct {
-	srcIdx    int
-	edgeColor int
-	targColor int
-}
-
-var extensionSize int
-func init() {
-	extensionSize = int(reflect.TypeOf(extension{}).Size())
-}
-
-func (e *extension) Equals(other types.Equatable) bool {
-	if o, ok := other.(*extension); ok {
-		return *e == *o
-	} else {
-		return false
-	}
-}
-
-func (e *extension) Less(other types.Sortable) bool {
-	if o, ok := other.(*extension); ok {
-		if e.srcIdx < o.srcIdx {
-			return true
-		} else if e.srcIdx > o.srcIdx {
-			return false
-		} else if e.edgeColor < o.edgeColor {
-			return true
-		} else if e.edgeColor > o.edgeColor {
-			return false
-		} else if e.targColor < o.targColor {
-			return true
-		}
-		return false
-	} else {
-		return false
-	}
-}
-
-func (e *extension) Hash() int {
-	s := &reflect.SliceHeader{
-		Data: uintptr(unsafe.Pointer(e)),
-		Len: extensionSize,
-		Cap: extensionSize,
-	}
-	bytes := *(*[]byte)(unsafe.Pointer(s))
-	h := fnv.New32a()
-	h.Write(bytes)
-	return int(h.Sum32())
+type labeledPartition struct {
+	label []byte
+	part partition
 }
 
 func (m *DepthMiner) mine() {
-	queue := make(chan partition)
-	go m.initial(queue)
-	part := m.nonOverlapping(<-queue)
-	exts := m.extensions(part)
-	for e, next := exts.Items()(); next != nil; e, next = next() {
-		ext := e.(*extension)
-		fmt.Println(ext)
-		for _, sg := range m.extend(part, ext) {
-			fmt.Println("  ", sg)
-		}
-	}
+	m.search(m.MaxQueueSize)
 	close(m.Report)
 }
 
-func (m *DepthMiner) initial(queue chan<- partition) {
-	max := 0
-	maxFreq := 0
-	for _, v := range m.Graph.V {
-		i := v.Color
-		freq := m.Graph.ColorFrequency(i)
-		if freq > maxFreq {
-			max = i
-			maxFreq = freq
+func (m *DepthMiner) initial() <-chan partition {
+	exts := m.MakeStore()
+	for i := range m.Graph.V {
+		v := &m.Graph.V[i]
+		if m.Graph.ColorFrequency(v.Color) > m.Support && m.Graph.ColorFrequency(v.Color) < m.MaxSupport {
+			sg := m.Graph.SubGraph([]int{v.Idx}, nil)
+			label := sg.ShortLabel()
+			exts.Add(label, sg)
 		}
 	}
-	partition := make(partition, 0, maxFreq)
-	for _, v := range m.Graph.V {
-		if v.Color != max {
-			continue
-		}
-		partition = append(partition, m.Graph.SubGraph([]int{v.Idx}, nil))
-	}
-	queue <- partition
+	return m.partition(exts)
 }
 
-/*
-func (m *DepthMiner) DFS(sgs partition) {
-	visit := func(node) {
-		visited.add(node)
-		for kid in node.kids {
-			if kid not in visited {
-				visit(kid)
+func (m *DepthMiner) search(N int) {
+	log.Println("Max Queue Size", N)
+	queue := make([]*labeledPartition, 0, N)
+	initial := m.initial()
+	addInitial := func() {
+		for part := range initial {
+			s := m.support(part)
+			if s > m.Support && s < m.MaxSupport {
+				queue = append(queue, &labeledPartition{part[0].ShortLabel(), part})
+				break
 			}
 		}
 	}
-	subgraphs := func(sg) {
-		emit sg
-		for node in sg.nodes {
-			for ext in extentions(node) {
-				if ext not in sg {
-					subgraphs(ext)
+	addInitial()
+	i := 0
+	for len(queue) > 0 {
+		var item *labeledPartition
+		item, queue = takeOne(queue)
+		if i % 1000 == 0 {
+			log.Println("process:", len(queue), len(item.part), item.part[0].Label())
+		}
+		m.process(item, func(lp *labeledPartition) {
+			for len(queue) > N {
+				if rand.Int() % 2 == 0 {
+					_, queue = takeOne(queue)
+				} else {
+					return
 				}
 			}
+			queue = append(queue, lp)
+		})
+		if len(queue) == 0 {
+			addInitial()
+		}
+		i++
+	}
+}
+
+func takeOne(queue []*labeledPartition) (*labeledPartition, []*labeledPartition) {
+	i := rand.Intn(len(queue))
+	item := queue[i]
+	copy(queue[i:], queue[i+1:])
+	queue = queue[:len(queue)-1]
+	return item, queue
+}
+
+func (m *DepthMiner) process(lp *labeledPartition, send func(*labeledPartition)) {
+	if m.seen.Has(lp.label) {
+		return
+	}
+	m.seen.Add(lp.label, lp.part[0])
+	if len(lp.part[0].V) > m.MinVertices {
+		for _, sg := range lp.part {
+			m.Report <- sg
+		}
+	}
+	for extended := range m.partition(m.extensions(lp.part)) {
+		extended = m.nonOverlapping(extended)
+		if len(extended) <= 0 {
+			continue
+		}
+		label := extended[0].ShortLabel()
+		s := m.support(extended)
+		if s > m.Support && s < m.MaxSupport && !m.seen.Has(label) {
+			send(&labeledPartition{label, extended})
 		}
 	}
 }
-*/
 
-/*
-func (m *DepthMiner) extensions(sg *goiso.SubGraph) []*extension {
-	exts := make([]*extension, 0, 10)
-	for _, v := range sg.V {
-		for _, e := range m.Graph.Kids[v.Id] {
-			targColor := m.Graph.V[e.Targ].Color
-			if m.support(targColor) < m.Support {
-				continue
-			}
-			if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
-				exts = append(exts, &extension{
-					srcIdx: v.Idx,
-					edgeColor: e.Color,
-					targColor: targColor,
-				})
-			}
-		}
-	}
-	return exts
-}
-*/
-
-func (m *DepthMiner) extensions(sgs []*goiso.SubGraph) *set.SortedSet {
-	exts := set.NewSortedSet(len(sgs))
-	for i := range sgs[0].V {
+func (m *DepthMiner) extensions(sgs []*goiso.SubGraph) store.SubGraphs {
+	exts := m.MakeStore()
+	for u, next := leftMost(sgs[0])(); next != nil; u, next = next() {
 		for _, sg := range sgs {
-			v := sg.V[i]
+			v := sg.V[u.Idx]
 			for _, e := range m.Graph.Kids[v.Id] {
 				targColor := m.Graph.V[e.Targ].Color
-				if m.support(targColor) < m.Support {
+				if m.Graph.ColorFrequency(targColor) < m.Support {
 					continue
 				}
 				if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
-					exts.Add(&extension{
-						srcIdx: v.Idx,
-						edgeColor: e.Color,
-						targColor: targColor,
-					})
+					esg := sg.EdgeExtend(e)
+					label := esg.ShortLabel()
+					if m.seen.Has(label) {
+						continue
+					}
+					if exts.Count(label) > m.MaxSupport {
+						continue
+					}
+					exts.Add(label, esg)
 				}
 			}
 		}
@@ -203,35 +181,24 @@ func (m *DepthMiner) extensions(sgs []*goiso.SubGraph) *set.SortedSet {
 	return exts
 }
 
-func (m *DepthMiner) extend(sgs partition, ext *extension) partition {
-	exts := make(partition, 0, len(sgs))
-	for _, sg := range sgs {
-		esg := m.extendOne(sg, ext)
-		if esg != nil {
-			exts = append(exts, esg)
+func (m *DepthMiner) partition(sgs store.SubGraphs) <-chan partition {
+	ch := make(chan partition)
+	go func() {
+		for key, keys := sgs.Keys()(); keys != nil; key, keys = keys() {
+			part := make(partition, 0, sgs.Count(key))
+			for _, sg, next := sgs.Find(key)(); next != nil; _, sg, next = next() {
+				part = append(part, sg)
+			}
+			ch<-part
 		}
-	}
-	return exts
+		close(ch)
+		sgs.Delete()
+	}()
+	return ch
 }
 
-func (m *DepthMiner) extendOne(sg *goiso.SubGraph, ext *extension) *goiso.SubGraph {
-	src := sg.V[ext.srcIdx]
-	for _, e := range m.Graph.Kids[src.Id] {
-		targColor := m.Graph.V[e.Targ].Color
-		if e.Color == ext.edgeColor && targColor == ext.targColor {
-			return sg.EdgeExtend(e)
-		}
-	}
-	return nil
-}
-
-func (m *DepthMiner) support(color int) int {
-	return m.Graph.ColorFrequency(color)
-}
-
-func (m *DepthMiner) supported(sgs partition) bool {
-	sgs = m.nonOverlapping(sgs)
-	return len(sgs) >= m.Support
+func (m *DepthMiner) support(sgs partition) int {
+	return len(sgs)
 }
 
 func (m *DepthMiner) nonOverlapping(sgs partition) partition {

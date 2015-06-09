@@ -296,17 +296,19 @@ func Depth(argv []string) {
 	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 	args, optargs, err := getopt.GetOpt(
 		argv,
-		"hs:m:o:",
+		"hs:m:o:N:",
 		[]string{
 			"help",
 			"support=",
 			"max-support=",
 			"min-vertices=",
+			"max-queue-size=",
 			"cache=",
 			"mem-cache",
 			"mem-profile=",
 			"cpu-profile=",
 			"output=",
+			"maximal",
 		},
 	)
 	if err != nil {
@@ -317,11 +319,13 @@ func Depth(argv []string) {
 	support := -1
 	maxSupport := -1
 	minVertices := 5
+	maxQueueSize := 100
 	cache := ""
 	memCache := false
 	memProfile := ""
 	cpuProfile := ""
 	outputDir := ""
+	maximal := false
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -334,6 +338,10 @@ func Depth(argv []string) {
 			maxSupport = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			minVertices = ParseInt(oa.Arg())
+		case "-N", "--max-queue-size":
+			maxQueueSize = ParseInt(oa.Arg())
+		case "--maximal":
+			maximal = true
 		case "--cache":
 			cache = AssertDir(oa.Arg())
 		case "--mem-cache":
@@ -443,12 +451,16 @@ func Depth(argv []string) {
 
 	embeddings := mine.Depth(
 		G,
-		support, maxSupport, minVertices,
+		support, maxSupport, minVertices, maxQueueSize,
 		maker,
 		memProfFile,
 	)
 	for sg := range embeddings {
 		all.Add(sg.ShortLabel(), sg)
+	}
+	if maximal {
+		log.Print("Finished mining, about to compute maximal frequent subgraphs.")
+		writeMaximalSubGraphs(all, nodeAttrs, outputDir)
 	}
 	log.Println("Finished mining! Writing output...")
 	writeAllPatterns(all, nodeAttrs, outputDir)
