@@ -24,6 +24,7 @@ package mine
  */
 
 import (
+	"bytes"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -351,6 +352,7 @@ func hash(bytes []byte) int {
 	return int(h.Sum32())
 }
 
+/*
 func (c *Collectors) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator)
 	done := make(chan bool)
@@ -390,8 +392,8 @@ func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
 	}
 	return p_it
 }
+*/
 
-/*
 func (c *Collectors) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator, 100)
 	go func() {
@@ -489,7 +491,6 @@ func (c *Collectors) partitionIterator(key []byte) (pit store.Iterator) {
 	}
 	return pit
 }
-*/
 
 func (c *Collectors) size() int {
 	sum := 0
