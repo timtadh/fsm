@@ -48,6 +48,7 @@ type Miner struct {
 	Graph *goiso.Graph
 	SupportAttrs map[int]string
 	VertexExtend bool
+	LeftMostExtension bool
 	Support int
 	MinVertices int
 	MaxSupport int
@@ -64,7 +65,7 @@ func Mine(
 	support, maxSupport, minVertices, maxRounds int,
 	startPrefix string,
 	supportAttr string,
-	vertexExtend bool,
+	vertexExtend, leftMost bool,
 	makeStore func() store.SubGraphs,
 	memProf io.Writer,
 ) (
@@ -88,6 +89,7 @@ func Mine(
 		StartPrefix: startPrefix,
 		SupportAttr: supportAttr,
 		VertexExtend: vertexExtend,
+		LeftMostExtension: leftMost,
 		Report: fsg,
 		MakeStore: makeStore,
 	}
@@ -253,8 +255,70 @@ func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
 	releaseSlice(non_overlapping)
 }
 
+type vertexIterator func() (*goiso.Vertex, vertexIterator)
+
+func leftMost(sg *goiso.SubGraph) (vi vertexIterator) {
+	visited := set.NewSortedSet(len(sg.V))
+	tree := make(map[int][]int, len(sg.V))
+	var visit func(*goiso.Vertex)
+	visit = func(v *goiso.Vertex) {
+		visited.Add(types.Int(v.Idx))
+		tree[v.Idx] = make([]int, 0, 5)
+		for _, e := range sg.Kids[v.Idx] {
+			if !visited.Has(types.Int(e.Targ)) {
+				tree[v.Idx] = append(tree[v.Idx], e.Targ)
+			}
+		}
+		for _, e := range sg.Kids[v.Idx] {
+			if !visited.Has(types.Int(e.Targ)) {
+				visit(&sg.V[e.Targ])
+			}
+		}
+	}
+	roots := make([]*goiso.Vertex, 0, 5)
+	for i := range sg.V {
+		v := &sg.V[i]
+		if !visited.Has(types.Int(v.Idx)) {
+			visit(v)
+			roots = append(roots, v)
+		}
+	}
+	i := 0
+	vi = func() (left *goiso.Vertex, _ vertexIterator) {
+		if i >= len(roots) {
+			return nil, nil
+		}
+		left = roots[i]
+		for len(tree[left.Idx]) > 0 {
+			left = &sg.V[tree[left.Idx][0]]
+		}
+		i++
+		return left, vi
+	}
+	return vi
+}
+
+func allVertices(sg *goiso.SubGraph) (vi vertexIterator) {
+	i := 0
+	vi = func() (v *goiso.Vertex, _ vertexIterator) {
+		if i >= len(sg.V) {
+			return nil, nil
+		}
+		v = &sg.V[i]
+		i++
+		return v, vi
+	}
+	return vi
+}
+
 func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
-	for _, v := range sg.V {
+	var V vertexIterator
+	if m.LeftMostExtension {
+		V = leftMost(sg)
+	} else {
+		V = allVertices(sg)
+	}
+	for v, next := V(); next != nil; v, next = next() {
 		// v.Idx is the index on the SubGraph
 		// v.Id is the index on the original Graph
 		for _, e := range m.Graph.Kids[v.Id] {

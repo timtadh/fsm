@@ -91,6 +91,7 @@ Options for 'breadth'
                                         time (instead of one edge at a time).
                                         The result may be less complete than the
                                         default mode.
+    --left-most                         use left most extension (non-complete)
     -s, --support=<int>                 number of unique embeddings (required)
     --max-support=<int>                 max-number of unique embeddings
     -m, --min-vertices=<int>            minimum number of nodes to report
@@ -100,6 +101,7 @@ Options for 'breadth'
                                         should be unique when counting support.
                                         Note the value of this attr must be a string
                                         or things will fail horribly!
+    --no-attrs                          do not load node attributes
     --max-rounds=<int>                  maxium number of rounds to do
     --maximal                           only report maximal frequent subgraphs
     -c, --cache=<path>                  use an on disk cache. put the cache files
@@ -296,6 +298,7 @@ func Breadth(argv []string) {
 		[]string{
 			"help",
 			"vertex-extend",
+			"left-most",
 			"maximal",
 			"support=",
 			"max-support=",
@@ -330,6 +333,7 @@ func Breadth(argv []string) {
 	cpuProfile := ""
 	outputDir := ""
 	noAttrs := false
+	leftMost := false
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -362,6 +366,8 @@ func Breadth(argv []string) {
 			cpuProfile = AssertFile(oa.Arg())
 		case "--no-attrs":
 			noAttrs = true
+		case "--left-most":
+			leftMost = true
 		}
 	}
 
@@ -475,7 +481,7 @@ func Breadth(argv []string) {
 		G, supportAttrs,
 		support, maxSupport, minVert, maxRounds,
 		startPrefix, supportAttr,
-		vertexExtend,
+		vertexExtend, leftMost,
 		maker,
 		memProfFile,
 	)
@@ -488,6 +494,7 @@ func Breadth(argv []string) {
 		writeMaximalSubGraphs(all, nodeAttrs, outputDir)
 	}
 	log.Print("Finished mining, writing output.")
+	writeAllPatterns(all, nodeAttrs, outputDir)
 	/*
 	for i, c := range G.Colors {
 		fmt.Printf("%d '%v'\n", i, c)
