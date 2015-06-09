@@ -271,17 +271,19 @@ func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 				}
 			}
 		}
-		for _, e := range m.Graph.Parents[v.Id] {
-			if m.Graph.ColorFrequency(m.Graph.V[e.Src].Color) < m.Support {
-				continue
-			}
-			if m.VertexExtend {
-				if !sg.HasVertex(e.Src) {
-					send(sg.Extend(e.Src))
+		if m.StartPrefix != "" {
+			for _, e := range m.Graph.Parents[v.Id] {
+				if m.Graph.ColorFrequency(m.Graph.V[e.Src].Color) < m.Support {
+					continue
 				}
-			} else {
-				if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
-					send(sg.EdgeExtend(e))
+				if m.VertexExtend {
+					if !sg.HasVertex(e.Src) {
+						send(sg.Extend(e.Src))
+					}
+				} else {
+					if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
+						send(sg.EdgeExtend(e))
+					}
 				}
 			}
 		}
