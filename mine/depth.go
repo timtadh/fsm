@@ -45,6 +45,12 @@ func Depth(
 
 type partition []*goiso.SubGraph
 
+type extension struct {
+	srcIdx    int
+	edgeColor int
+	targColor int
+}
+
 func (m *DepthMiner) mine() {
 	queue := make(chan partition)
 	go m.initial(queue)
@@ -72,6 +78,53 @@ func (m *DepthMiner) initial(queue chan<- partition) {
 		partition = append(partition, m.Graph.SubGraph([]int{v.Idx}, nil))
 	}
 	queue <- partition
+}
+
+/*
+func (m *DepthMiner) DFS(sgs partition) {
+	visit := func(node) {
+		visited.add(node)
+		for kid in node.kids {
+			if kid not in visited {
+				visit(kid)
+			}
+		}
+	}
+	subgraphs := func(sg) {
+		emit sg
+		for node in sg.nodes {
+			for ext in extentions(node) {
+				if ext not in sg {
+					subgraphs(ext)
+				}
+			}
+		}
+	}
+}
+*/
+
+func (m *DepthMiner) extensions(sg *goiso.SubGraph) []*extension {
+	exts := make([]*extension, 0, 10)
+	for _, v := range sg.V {
+		for _, e := range m.Graph.Kids[v.Id] {
+			targColor := m.Graph.V[e.Targ].Color
+			if m.support(targColor) < m.Support {
+				continue
+			}
+			if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
+				exts = append(exts, &extension{
+					srcIdx: v.Idx,
+					edgeColor: e.Color,
+					targColor: targColor,
+				})
+			}
+		}
+	}
+	return exts
+}
+
+func (m *DepthMiner) support(color int) int {
+	return m.Graph.ColorFrequency(color)
 }
 
 func (m *DepthMiner) supported(sgs partition) bool {
