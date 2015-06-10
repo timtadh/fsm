@@ -9,6 +9,10 @@ import (
 )
 
 import (
+	"github.com/antzucaro/matchr"
+)
+
+import (
 	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/goiso"
 	"github.com/timtadh/fsm/store"
@@ -35,6 +39,7 @@ type DepthMiner struct {
 	Report chan *goiso.SubGraph
 	MakeStore func() store.SubGraphs
 	seen store.SubGraphs
+	seenLabels [][]byte
 }
 
 func Depth(
@@ -51,9 +56,9 @@ func Depth(
 		MaxSupport: maxSupport,
 		MinVertices: minVertices,
 		MaxQueueSize: maxQueueSize,
-		Report: make(chan *goiso.SubGraph),
-		MakeStore: makeStore,
+		Report: make(chan *goiso.SubGraph), MakeStore: makeStore,
 		seen: makeStore(),
+		seenLabels: make([][]byte, 0, 1000),
 	}
 
 	go m.mine()
@@ -76,7 +81,7 @@ func (m *DepthMiner) initial() <-chan partition {
 	exts := m.MakeStore()
 	for i := range m.Graph.V {
 		v := &m.Graph.V[i]
-		if m.Graph.ColorFrequency(v.Color) > m.Support && m.Graph.ColorFrequency(v.Color) < m.MaxSupport {
+		if m.Graph.ColorFrequency(v.Color) >= m.Support && m.Graph.ColorFrequency(v.Color) < m.MaxSupport {
 			sg := m.Graph.SubGraph([]int{v.Idx}, nil)
 			label := sg.ShortLabel()
 			exts.Add(label, sg)
@@ -92,7 +97,7 @@ func (m *DepthMiner) search(N int) {
 	addInitial := func() {
 		for part := range initial {
 			s := m.support(part)
-			if s > m.Support && s < m.MaxSupport {
+			if s >= m.Support && s < m.MaxSupport {
 				queue = append(queue, &labeledPartition{part[0].ShortLabel(), part})
 				break
 			}
@@ -102,19 +107,15 @@ func (m *DepthMiner) search(N int) {
 	i := 0
 	for len(queue) > 0 {
 		var item *labeledPartition
-		item, queue = takeOne(queue)
-		if i % 1000 == 0 {
-			log.Println("process:", len(queue), len(item.part), item.part[0].Label())
-		}
+		item, queue = m.takeOne(queue)
+		// if i % 100 == 0 {
+			log.Println("process:", i, m.seen.Size(), len(queue), len(item.part), item.part[0].Label())
+		// }
 		m.process(item, func(lp *labeledPartition) {
-			for len(queue) > N {
-				if rand.Int() % 2 == 0 {
-					_, queue = takeOne(queue)
-				} else {
-					return
-				}
-			}
 			queue = append(queue, lp)
+			for len(queue) > N {
+				queue = m.dropOne(queue)
+			}
 		})
 		if len(queue) == 0 {
 			addInitial()
@@ -123,12 +124,83 @@ func (m *DepthMiner) search(N int) {
 	}
 }
 
-func takeOne(queue []*labeledPartition) (*labeledPartition, []*labeledPartition) {
-	i := rand.Intn(len(queue))
+func (m *DepthMiner) takeOne(queue []*labeledPartition) (*labeledPartition, []*labeledPartition) {
+	i, _ := max(sample(10, len(queue)), func(i int) int { return m.score(queue[i], queue) })
+	return m.takeAt(queue, i)
+}
+
+func (m *DepthMiner) dropOne(queue []*labeledPartition) ([]*labeledPartition) {
+	i, _ := min(sample(10, len(queue)), func(i int) int { return m.score(queue[i], queue) })
+	_, queue = m.takeAt(queue, i)
+	return queue
+}
+
+func (m *DepthMiner) takeAt(queue []*labeledPartition, i int) (*labeledPartition, []*labeledPartition) {
 	item := queue[i]
 	copy(queue[i:], queue[i+1:])
 	queue = queue[:len(queue)-1]
 	return item, queue
+}
+
+func min(items []int, f func(item int) int) (arg, min int) {
+	arg = -1
+	for _, i := range items {
+		d := f(i)
+		if d < min || arg < 0 {
+			min = d
+			arg = i
+		}
+	}
+	return arg, min
+}
+
+func max(items []int, f func(item int) int) (arg, max int) {
+	arg = -1
+	for _, i := range items {
+		d := f(i)
+		if d > max || arg < 0 {
+			max = d
+			arg = i
+		}
+	}
+	return arg, max
+}
+
+func sample(size, populationSize int) (sample []int) {
+	if size >= populationSize {
+		sample = make([]int, 0, populationSize)
+		for i := 0; i < populationSize; i++ {
+			sample = append(sample, i)
+		}
+		return sample
+	}
+	in := func(x int, items []int) bool {
+		for _, y := range items {
+			if x == y {
+				return true
+			}
+		}
+		return false
+	}
+	sample = make([]int, 0, size)
+	for i := 0; i < size; i++ {
+		j := rand.Intn(populationSize)
+		for in(j, sample) {
+			j = rand.Intn(populationSize) 
+		}
+		sample = append(sample, j)
+	}
+	return sample
+}
+
+func (m *DepthMiner) score(item *labeledPartition, population []*labeledPartition) int {
+	_, seenNN := min(sample(10, len(m.seenLabels)), func(i int) int {
+		return matchr.Levenshtein(string(m.seenLabels[i]), string(item.label))
+	})
+	_, popNN := min(sample(10, len(population)), func(i int) int {
+		return matchr.Levenshtein(string(population[i].label), string(item.label))
+	})
+	return (seenNN + (popNN/2))/len(item.label)
 }
 
 func (m *DepthMiner) process(lp *labeledPartition, send func(*labeledPartition)) {
@@ -136,6 +208,7 @@ func (m *DepthMiner) process(lp *labeledPartition, send func(*labeledPartition))
 		return
 	}
 	m.seen.Add(lp.label, lp.part[0])
+	m.seenLabels = append(m.seenLabels, lp.label)
 	if len(lp.part[0].V) > m.MinVertices {
 		for _, sg := range lp.part {
 			m.Report <- sg
@@ -148,36 +221,77 @@ func (m *DepthMiner) process(lp *labeledPartition, send func(*labeledPartition))
 		}
 		label := extended[0].ShortLabel()
 		s := m.support(extended)
-		if s > m.Support && s < m.MaxSupport && !m.seen.Has(label) {
+		if s >= m.Support && s < m.MaxSupport && !m.seen.Has(label) {
 			send(&labeledPartition{label, extended})
 		}
 	}
 }
 
 func (m *DepthMiner) extensions(sgs []*goiso.SubGraph) store.SubGraphs {
-	exts := m.MakeStore()
-	for u, next := leftMost(sgs[0])(); next != nil; u, next = next() {
-		for _, sg := range sgs {
-			v := sg.V[u.Idx]
-			for _, e := range m.Graph.Kids[v.Id] {
-				targColor := m.Graph.V[e.Targ].Color
-				if m.Graph.ColorFrequency(targColor) < m.Support {
-					continue
+	type extension struct {
+		sg *goiso.SubGraph
+		e *goiso.Edge
+	}
+	extend := make(chan extension)
+	extended := make(chan *goiso.SubGraph)
+	done := make(chan bool)
+	WORKERS := 10
+	for i := 0; i < WORKERS; i++ {
+		go func() {
+			for ext := range extend {
+				// log.Println("to extend", ext)
+				extended<-ext.sg.EdgeExtend(ext.e)
+			}
+			done <-true
+		}()
+	}
+	go func() {
+		for i := 0; i < WORKERS; i++ {
+			<-done
+		}
+		close(extended)
+		close(done)
+	}()
+	go func() {
+		for u, next := leftMost(sgs[0])(); next != nil; u, next = next() {
+			for _, sg := range sgs {
+				v := sg.V[u.Idx]
+				for _, e := range m.Graph.Kids[v.Id] {
+					if m.Graph.ColorFrequency(m.Graph.V[e.Targ].Color) < m.Support {
+						continue
+					}
+					if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
+						// log.Println("would have extended", e)
+						extend<-extension{sg, e}
+					}
 				}
-				if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
-					esg := sg.EdgeExtend(e)
-					label := esg.ShortLabel()
-					if m.seen.Has(label) {
+				for _, e := range m.Graph.Parents[v.Id] {
+					if m.Graph.ColorFrequency(m.Graph.V[e.Src].Color) < m.Support {
 						continue
 					}
-					if exts.Count(label) > m.MaxSupport {
-						continue
+					if !sg.HasEdge(goiso.ColoredArc{e.Arc, e.Color}) {
+						// log.Println("would have extended", e)
+						extend<-extension{sg, e}
 					}
-					exts.Add(label, esg)
 				}
 			}
 		}
+		close(extend)
+	}()
+	// log.Println("computing extensions of ", sgs[0].Label())
+	exts := m.MakeStore()
+	for esg := range extended {
+		// log.Println(esg.Label())
+		label := esg.ShortLabel()
+		if m.seen.Has(label) {
+			continue
+		}
+		if exts.Count(label) > m.MaxSupport {
+			continue
+		}
+		exts.Add(label, esg)
 	}
+	// log.Println("finished computing extensions of ", sgs[0].Label())
 	return exts
 }
 
