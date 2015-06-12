@@ -194,6 +194,10 @@ func sample(size, populationSize int) (sample []int) {
 }
 
 func (m *DepthMiner) score(item *labeledPartition, population []*labeledPartition) int {
+	return rand.Intn(100)
+}
+
+func (m *DepthMiner) scoreA(item *labeledPartition, population []*labeledPartition) int {
 	_, seenNN := min(sample(10, len(m.seenLabels)), func(i int) int {
 		return matchr.Levenshtein(string(m.seenLabels[i]), string(item.label))
 	})
