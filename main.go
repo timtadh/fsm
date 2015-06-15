@@ -296,15 +296,14 @@ func Depth(argv []string) {
 	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
 	args, optargs, err := getopt.GetOpt(
 		argv,
-		"hs:m:o:N:",
+		"hs:m:o:",
 		[]string{
 			"help",
 			"support=",
 			"max-support=",
 			"min-vertices=",
-			"max-queue-size=",
-			"cache=",
-			"mem-cache",
+			"queue-size=",
+			"score=",
 			"mem-profile=",
 			"cpu-profile=",
 			"output=",
@@ -319,12 +318,11 @@ func Depth(argv []string) {
 	support := -1
 	maxSupport := -1
 	minVertices := 5
-	maxQueueSize := 100
-	cache := ""
-	memCache := false
+	queueSize := 100
 	memProfile := ""
 	cpuProfile := ""
 	outputDir := ""
+	score := "random"
 	maximal := false
 	for _, oa := range optargs {
 		switch oa.Opt() {
@@ -338,18 +336,16 @@ func Depth(argv []string) {
 			maxSupport = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			minVertices = ParseInt(oa.Arg())
-		case "-N", "--max-queue-size":
-			maxQueueSize = ParseInt(oa.Arg())
+		case "--queue-size":
+			queueSize = ParseInt(oa.Arg())
 		case "--maximal":
 			maximal = true
-		case "--cache":
-			cache = AssertDir(oa.Arg())
-		case "--mem-cache":
-			memCache = true
 		case "--mem-profile":
 			memProfile = AssertFile(oa.Arg())
 		case "--cpu-profile":
 			cpuProfile = AssertFile(oa.Arg())
+		case "--score":
+			score = oa.Arg()
 		}
 	}
 
@@ -364,11 +360,6 @@ func Depth(argv []string) {
 
 	if outputDir == "" {
 		fmt.Fprintf(os.Stderr, "You must supply an output file (use -o)\n")
-		Usage(ErrorCodes["opts"])
-	}
-
-	if memCache && cache != "" {
-		fmt.Fprintf(os.Stderr, "You cannot supply both --cache and --mem-cache")
 		Usage(ErrorCodes["opts"])
 	}
 
@@ -424,35 +415,15 @@ func Depth(argv []string) {
 	all := store.NewFs2BpTree(G, allPath)
 	defer all.Close()
 
-	memMaker := func() store.SubGraphs {
-		return store.NewMemBpTree(127)
-	}
-
-	count := 0
-	fsMaker := func() store.SubGraphs {
-		name := fmt.Sprintf("fsm_bptree_%d", count)
-		count++
-		path := path.Join(cache, name)
-		return store.NewFs2BpTree(G, path)
-	}
-
 	memFsMaker := func() store.SubGraphs {
 		return store.AnonFs2BpTree(G)
 	}
 
-	var maker func() store.SubGraphs
-	if memCache {
-		maker = memFsMaker
-	} else if cache != "" {
-		maker = fsMaker
-	} else {
-		maker = memMaker
-	}
-
 	embeddings := mine.Depth(
 		G,
-		support, maxSupport, minVertices, maxQueueSize,
-		maker,
+		score,
+		support, maxSupport, minVertices, queueSize,
+		memFsMaker,
 		memProfFile,
 	)
 	for sg := range embeddings {

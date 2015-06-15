@@ -59,12 +59,12 @@ func MaximalSubGraphs(all store.SubGraphs, nodeAttrs *bptree.BpTree, tempDir str
 func addToLabels(labels *bptree.BpTree, label []byte) {
 	has, err := labels.Has(label)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 	if !has {
 		err = labels.Add(label, []byte{0})
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 	}
 }

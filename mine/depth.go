@@ -1,11 +1,10 @@
 package mine
 
 import (
-	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"math/rand"
-	"os"
 )
 
 import (
@@ -18,32 +17,31 @@ import (
 	"github.com/timtadh/fsm/store"
 )
 
-func init() {
-	if urandom, err := os.Open("/dev/urandom"); err != nil {
-		panic(err)
-	} else {
-		seed := make([]byte, 8)
-		if _, err := urandom.Read(seed); err == nil {
-			rand.Seed(int64(binary.BigEndian.Uint64(seed)))
-		}
-		urandom.Close()
-	}
+type Scorer func(*isoGroup, []*isoGroup) int
+
+type partition []*goiso.SubGraph
+
+type isoGroup struct {
+	label []byte
+	part partition
 }
 
 type DepthMiner struct {
 	Graph *goiso.Graph
+	ScoreName string
+	Score Scorer
 	Support int
 	MaxSupport int
 	MinVertices int
 	MaxQueueSize int
 	Report chan *goiso.SubGraph
 	MakeStore func() store.SubGraphs
-	seen store.SubGraphs
-	seenLabels [][]byte
+	processed, queued *Seen
 }
 
 func Depth(
 	G *goiso.Graph,
+	scoreName string,
 	support, maxSupport, minVertices, maxQueueSize int,
 	makeStore func() store.SubGraphs,
 	memProf io.Writer,
@@ -52,24 +50,24 @@ func Depth(
 ) {
 	m := &DepthMiner{
 		Graph: G,
+		ScoreName: scoreName,
 		Support: support,
 		MaxSupport: maxSupport,
 		MinVertices: minVertices,
 		MaxQueueSize: maxQueueSize,
 		Report: make(chan *goiso.SubGraph), MakeStore: makeStore,
-		seen: makeStore(),
-		seenLabels: make([][]byte, 0, 1000),
+		processed: NewSeen(),
+		queued: NewSeen(),
+	}
+	switch scoreName {
+	case "random": m.Score = m.RandomScore
+	case "neighbor": m.Score = m.NeighborScore
+	default: panic(fmt.Errorf("Unknown Score Function"))
 	}
 
 	go m.mine()
 
 	return m.Report
-}
-
-type partition []*goiso.SubGraph
-type labeledPartition struct {
-	label []byte
-	part partition
 }
 
 func (m *DepthMiner) mine() {
@@ -92,13 +90,15 @@ func (m *DepthMiner) initial() <-chan partition {
 
 func (m *DepthMiner) search(N int) {
 	log.Println("Max Queue Size", N)
-	queue := make([]*labeledPartition, 0, N)
+	queue := make([]*isoGroup, 0, N)
 	initial := m.initial()
 	addInitial := func() {
 		for part := range initial {
 			s := m.support(part)
 			if s >= m.Support && s < m.MaxSupport {
-				queue = append(queue, &labeledPartition{part[0].ShortLabel(), part})
+				label := part[0].ShortLabel()
+				queue = append(queue, &isoGroup{label, part})
+				m.queued.Add(label)
 				break
 			}
 		}
@@ -106,12 +106,13 @@ func (m *DepthMiner) search(N int) {
 	addInitial()
 	i := 0
 	for len(queue) > 0 {
-		var item *labeledPartition
+		var item *isoGroup
 		item, queue = m.takeOne(queue)
 		// if i % 100 == 0 {
-			log.Println("process:", i, m.seen.Size(), len(queue), len(item.part), item.part[0].Label())
+			log.Println("process:", i, m.processed.Size(), len(queue), len(item.part), item.part[0].Label())
 		// }
-		m.process(item, func(lp *labeledPartition) {
+		m.process(item, func(lp *isoGroup) {
+			m.queued.Add(lp.label)
 			queue = append(queue, lp)
 			for len(queue) > N {
 				queue = m.dropOne(queue)
@@ -124,82 +125,35 @@ func (m *DepthMiner) search(N int) {
 	}
 }
 
-func (m *DepthMiner) takeOne(queue []*labeledPartition) (*labeledPartition, []*labeledPartition) {
+func (m *DepthMiner) takeOne(queue []*isoGroup) (*isoGroup, []*isoGroup) {
 	i, _ := max(sample(10, len(queue)), func(i int) int { return m.score(queue[i], queue) })
 	return m.takeAt(queue, i)
 }
 
-func (m *DepthMiner) dropOne(queue []*labeledPartition) ([]*labeledPartition) {
+func (m *DepthMiner) dropOne(queue []*isoGroup) ([]*isoGroup) {
 	i, _ := min(sample(10, len(queue)), func(i int) int { return m.score(queue[i], queue) })
 	_, queue = m.takeAt(queue, i)
 	return queue
 }
 
-func (m *DepthMiner) takeAt(queue []*labeledPartition, i int) (*labeledPartition, []*labeledPartition) {
+func (m *DepthMiner) takeAt(queue []*isoGroup, i int) (*isoGroup, []*isoGroup) {
 	item := queue[i]
 	copy(queue[i:], queue[i+1:])
 	queue = queue[:len(queue)-1]
 	return item, queue
 }
 
-func min(items []int, f func(item int) int) (arg, min int) {
-	arg = -1
-	for _, i := range items {
-		d := f(i)
-		if d < min || arg < 0 {
-			min = d
-			arg = i
-		}
-	}
-	return arg, min
+func (m *DepthMiner) score(item *isoGroup, population []*isoGroup) int {
+	return m.Score(item, population)
 }
 
-func max(items []int, f func(item int) int) (arg, max int) {
-	arg = -1
-	for _, i := range items {
-		d := f(i)
-		if d > max || arg < 0 {
-			max = d
-			arg = i
-		}
-	}
-	return arg, max
-}
-
-func sample(size, populationSize int) (sample []int) {
-	if size >= populationSize {
-		sample = make([]int, 0, populationSize)
-		for i := 0; i < populationSize; i++ {
-			sample = append(sample, i)
-		}
-		return sample
-	}
-	in := func(x int, items []int) bool {
-		for _, y := range items {
-			if x == y {
-				return true
-			}
-		}
-		return false
-	}
-	sample = make([]int, 0, size)
-	for i := 0; i < size; i++ {
-		j := rand.Intn(populationSize)
-		for in(j, sample) {
-			j = rand.Intn(populationSize) 
-		}
-		sample = append(sample, j)
-	}
-	return sample
-}
-
-func (m *DepthMiner) score(item *labeledPartition, population []*labeledPartition) int {
+func (m *DepthMiner) RandomScore(item *isoGroup, population []*isoGroup) int {
 	return rand.Intn(100)
 }
 
-func (m *DepthMiner) scoreA(item *labeledPartition, population []*labeledPartition) int {
-	_, seenNN := min(sample(10, len(m.seenLabels)), func(i int) int {
-		return matchr.Levenshtein(string(m.seenLabels[i]), string(item.label))
+func (m *DepthMiner) NeighborScore(item *isoGroup, population []*isoGroup) int {
+	_, seenNN := min(sample(10, m.processed.Size()), func(i int) int {
+		return matchr.Levenshtein(string(m.processed.Get(i)), string(item.label))
 	})
 	_, popNN := min(sample(10, len(population)), func(i int) int {
 		return matchr.Levenshtein(string(population[i].label), string(item.label))
@@ -207,12 +161,11 @@ func (m *DepthMiner) scoreA(item *labeledPartition, population []*labeledPartiti
 	return (seenNN + (popNN/2))/len(item.label)
 }
 
-func (m *DepthMiner) process(lp *labeledPartition, send func(*labeledPartition)) {
-	if m.seen.Has(lp.label) {
+func (m *DepthMiner) process(lp *isoGroup, send func(*isoGroup)) {
+	if m.processed.Has(lp.label) {
 		return
 	}
-	m.seen.Add(lp.label, lp.part[0])
-	m.seenLabels = append(m.seenLabels, lp.label)
+	m.processed.Add(lp.label)
 	if len(lp.part[0].V) > m.MinVertices {
 		for _, sg := range lp.part {
 			m.Report <- sg
@@ -225,8 +178,8 @@ func (m *DepthMiner) process(lp *labeledPartition, send func(*labeledPartition))
 		}
 		label := extended[0].ShortLabel()
 		s := m.support(extended)
-		if s >= m.Support && s < m.MaxSupport && !m.seen.Has(label) {
-			send(&labeledPartition{label, extended})
+		if s >= m.Support && s < m.MaxSupport && !m.queued.Has(label) {
+			send(&isoGroup{label, extended})
 		}
 	}
 }
@@ -287,7 +240,7 @@ func (m *DepthMiner) extensions(sgs []*goiso.SubGraph) store.SubGraphs {
 	for esg := range extended {
 		// log.Println(esg.Label())
 		label := esg.ShortLabel()
-		if m.seen.Has(label) {
+		if m.queued.Has(label) {
 			continue
 		}
 		if exts.Count(label) > m.MaxSupport {
