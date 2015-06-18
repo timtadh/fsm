@@ -17,7 +17,7 @@ import (
 	"github.com/timtadh/fsm/store"
 )
 
-type Scorer func(*isoGroup, []*isoGroup) int
+type Scorer func([]byte, *Queue) int
 
 type partition []*goiso.SubGraph
 
@@ -90,75 +90,70 @@ func (m *DepthMiner) initial() <-chan partition {
 
 func (m *DepthMiner) search(N int) {
 	log.Println("Max Queue Size", N)
-	queue := make([]*isoGroup, 0, N)
+	// queue := make([]*isoGroup, 0, N)
+	queue := NewQueue(m.Graph)
 	initial := m.initial()
 	addInitial := func() {
 		for part := range initial {
 			s := m.support(part)
 			if s >= m.Support && s < m.MaxSupport {
-				label := part[0].ShortLabel()
-				queue = append(queue, &isoGroup{label, part})
-				m.queued.Add(label)
+				g := &isoGroup{part[0].ShortLabel(), part}
+				// queue = append(queue, g)
+				queue.Add(g)
+				m.queued.Add(g.label)
 				break
 			}
 		}
 	}
 	addInitial()
 	i := 0
-	for len(queue) > 0 {
+	for queue.Size() > 0 {
 		var item *isoGroup
-		item, queue = m.takeOne(queue)
+		item = m.takeOne(queue)
 		// if i % 100 == 0 {
-			log.Println("process:", i, m.processed.Size(), len(queue), len(item.part), item.part[0].Label())
+			log.Println("process:", i, m.processed.Size(), queue.Size(), len(item.part), item.part[0].Label())
 		// }
 		m.process(item, func(lp *isoGroup) {
 			m.queued.Add(lp.label)
-			queue = append(queue, lp)
-			for len(queue) > N {
-				queue = m.dropOne(queue)
+			queue.Add(lp)
+			// queue = append(queue, lp)
+			for queue.Size() > N {
+				m.dropOne(queue)
 			}
 		})
-		if len(queue) == 0 {
+		if queue.Size() == 0 {
 			addInitial()
 		}
 		i++
 	}
 }
 
-func (m *DepthMiner) takeOne(queue []*isoGroup) (*isoGroup, []*isoGroup) {
-	i, _ := max(sample(10, len(queue)), func(i int) int { return m.score(queue[i], queue) })
-	return m.takeAt(queue, i)
+func (m *DepthMiner) takeOne(queue *Queue) *isoGroup {
+	i, _ := max(sample(10, queue.Size()), func(i int) int { return m.score(queue.Get(i), queue) })
+	return queue.Pop(i)
 }
 
-func (m *DepthMiner) dropOne(queue []*isoGroup) ([]*isoGroup) {
-	i, _ := min(sample(10, len(queue)), func(i int) int { return m.score(queue[i], queue) })
-	_, queue = m.takeAt(queue, i)
-	return queue
+func (m *DepthMiner) dropOne(queue *Queue) {
+	i, _ := min(sample(10, queue.Size()), func(i int) int { return m.score(queue.Get(i), queue) })
+	queue.Pop(i)
 }
 
-func (m *DepthMiner) takeAt(queue []*isoGroup, i int) (*isoGroup, []*isoGroup) {
-	item := queue[i]
-	copy(queue[i:], queue[i+1:])
-	queue = queue[:len(queue)-1]
-	return item, queue
+func (m *DepthMiner) score(label []byte, population *Queue) int {
+	return m.Score(label, population)
 }
 
-func (m *DepthMiner) score(item *isoGroup, population []*isoGroup) int {
-	return m.Score(item, population)
-}
-
-func (m *DepthMiner) RandomScore(item *isoGroup, population []*isoGroup) int {
+func (m *DepthMiner) RandomScore(label []byte, population *Queue) int {
 	return rand.Intn(100)
 }
 
-func (m *DepthMiner) NeighborScore(item *isoGroup, population []*isoGroup) int {
+func (m *DepthMiner) NeighborScore(label []byte, population *Queue) int {
 	_, seenNN := min(sample(10, m.processed.Size()), func(i int) int {
-		return matchr.Levenshtein(string(m.processed.Get(i)), string(item.label))
+		return matchr.Levenshtein(string(m.processed.Get(i)), string(label))
 	})
-	_, popNN := min(sample(10, len(population)), func(i int) int {
-		return matchr.Levenshtein(string(population[i].label), string(item.label))
+	_, popNN := min(sample(10, population.Size()), func(i int) int {
+		return matchr.Levenshtein(string(population.Get(i)), string(label))
 	})
-	return (seenNN + (popNN/2))/len(item.label)
+	return (seenNN + (popNN/2))/len(label)
 }
 
 func (m *DepthMiner) process(lp *isoGroup, send func(*isoGroup)) {
