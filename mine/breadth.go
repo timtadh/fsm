@@ -44,7 +44,7 @@ import (
 
 type partitionIterator func() (part store.Iterator, next partitionIterator)
 
-type Miner struct {
+type BreadthMiner struct {
 	Graph *goiso.Graph
 	SupportAttrs map[int]string
 	VertexExtend bool
@@ -59,7 +59,7 @@ type Miner struct {
 	MakeStore func() store.SubGraphs
 }
 
-func Mine(
+func Breadth(
 	G *goiso.Graph,
 	supportAttrs map[int]string,
 	support, maxSupport, minVertices, maxRounds int,
@@ -79,7 +79,7 @@ func Mine(
 	// 		runtime.GC()
 	// 	}
 	// }(ticker.C)
-	m := &Miner{
+	m := &BreadthMiner{
 		Graph: G,
 		SupportAttrs: supportAttrs,
 		Support: support,
@@ -135,7 +135,7 @@ func Mine(
 	return fsg
 }
 
-func (m *Miner) initial() (<-chan store.Iterator, *Collectors) {
+func (m *BreadthMiner) initial() (<-chan store.Iterator, *Collectors) {
 	CPUs := runtime.NumCPU()
 	collectors := m.makeCollectors(CPUs)
 	m.Initial(collectors.send)
@@ -143,7 +143,7 @@ func (m *Miner) initial() (<-chan store.Iterator, *Collectors) {
 	return collectors.partsCh(), collectors
 }
 
-func (m *Miner) Initial(send func(*goiso.SubGraph)) {
+func (m *BreadthMiner) Initial(send func(*goiso.SubGraph)) {
 	log.Printf("Creating initial set")
 	graphs := 0
 	for _, v := range m.Graph.V {
@@ -172,7 +172,7 @@ func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
 }
 
 
-func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
+func (m *BreadthMiner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 	vids := getSet()
 	non_overlapping := getSlice()
 	i := 0
@@ -199,7 +199,7 @@ func (m *Miner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 	return non_overlapping
 }
 
-func (m *Miner) countSupport(sgs []*goiso.SubGraph) (support int) {
+func (m *BreadthMiner) countSupport(sgs []*goiso.SubGraph) (support int) {
 	if m.SupportAttr == "" {
 		return len(sgs)
 	}
@@ -222,7 +222,7 @@ func (m *Miner) countSupport(sgs []*goiso.SubGraph) (support int) {
 	return support
 }
 
-func (m *Miner) filterAndExtend(N int, parts <-chan store.Iterator, send func(*goiso.SubGraph)) {
+func (m *BreadthMiner) filterAndExtend(N int, parts <-chan store.Iterator, send func(*goiso.SubGraph)) {
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
 		go m.worker(parts, send, done)
@@ -233,7 +233,7 @@ func (m *Miner) filterAndExtend(N int, parts <-chan store.Iterator, send func(*g
 	close(done)
 }
 
-func (m *Miner) worker(in <-chan store.Iterator, send func(*goiso.SubGraph), done chan<- bool) {
+func (m *BreadthMiner) worker(in <-chan store.Iterator, send func(*goiso.SubGraph), done chan<- bool) {
 	for part := range in {
 		m.do_filter(part, func(sg *goiso.SubGraph) {
 			m.do_extend(sg, send)
@@ -242,7 +242,7 @@ func (m *Miner) worker(in <-chan store.Iterator, send func(*goiso.SubGraph), don
 	done <- true
 }
 
-func (m *Miner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
+func (m *BreadthMiner) do_filter(part store.Iterator, send func(*goiso.SubGraph)) {
 	non_overlapping := m.nonOverlapping(part)
 	if m.countSupport(non_overlapping) >= m.Support {
 		for _, sg := range non_overlapping {
@@ -311,7 +311,7 @@ func allVertices(sg *goiso.SubGraph) (vi vertexIterator) {
 	return vi
 }
 
-func (m *Miner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
+func (m *BreadthMiner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph)) {
 	var V vertexIterator
 	if m.LeftMostExtension {
 		V = leftMost(sg)
@@ -364,7 +364,7 @@ type labelGraph struct {
 	sg *goiso.SubGraph
 }
 
-func (m *Miner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
+func (m *BreadthMiner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	for lg := range in {
 		{
 			key := lg.label
@@ -387,7 +387,7 @@ func (m *Miner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
 	}
 }
 
-func (m *Miner) makeCollectors(N int) *Collectors {
+func (m *BreadthMiner) makeCollectors(N int) *Collectors {
 	trees := make([]store.SubGraphs, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
 	for i := 0; i < N; i++ {
