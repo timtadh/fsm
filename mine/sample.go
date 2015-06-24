@@ -45,6 +45,46 @@ func sample(size, populationSize int) (sample []int) {
 	return sample
 }
 
+func replacingSample(size, populationSize int) (sample []int) {
+	if size >= populationSize {
+		sample = make([]int, 0, populationSize)
+		for i := 0; i < populationSize; i++ {
+			sample = append(sample, i)
+		}
+		return sample
+	}
+	sample = make([]int, 0, size)
+	for i := 0; i < size; i++ {
+		j := rand.Intn(populationSize)
+		sample = append(sample, j)
+	}
+	return sample
+}
+
+func mean(items []int, f func(item int) int) (mean, variance float64) {
+	if len(items) == 0 {
+		return -1, -1
+	}
+	F := make([]int, len(items))
+	sum := 0
+	for j, i := range items {
+		F[j] = f(i)
+		sum += F[j]
+	}
+	mean = float64(sum) / float64(len(items))
+	s2 := float64(0)
+	for _, f := range F {
+		d := float64(f) - mean
+		s2 += d*d
+	}
+	if len(items) > 1 {
+		variance = (1/(float64(len(items))-1))*s2
+	} else {
+		variance = 0
+	}
+	return mean, variance
+}
+
 func min(items []int, f func(item int) int) (arg, min int) {
 	arg = -1
 	for _, i := range items {

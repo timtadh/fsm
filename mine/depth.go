@@ -8,13 +8,13 @@ import (
 )
 
 import (
-	"github.com/antzucaro/matchr"
 )
 
 import (
 	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/goiso"
 	"github.com/timtadh/fsm/store"
+	"github.com/timtadh/fsm/subgraph"
 )
 
 type Scorer func([]byte, *Queue) int
@@ -147,13 +147,24 @@ func (m *DepthMiner) RandomScore(label []byte, population *Queue) int {
 }
 
 func (m *DepthMiner) NeighborScore(label []byte, population *Queue) int {
-	_, seenNN := min(sample(10, m.processed.Size()), func(i int) int {
-		return matchr.Levenshtein(string(m.processed.Get(i)), string(label))
+	L := subgraph.FromShortLabel(label)
+	q_mean, _ := mean(replacingSample(10, m.processed.Size()), func(i int) int {
+		O := subgraph.FromShortLabel(m.processed.Get(i))
+		return int(L.Metric(O))
 	})
-	_, popNN := min(sample(10, population.Size()), func(i int) int {
-		return matchr.Levenshtein(string(population.Get(i)), string(label))
+	p_mean, _ := mean(replacingSample(10, population.Size()), func(i int) int {
+		O := subgraph.FromShortLabel(population.Get(i))
+		return int(L.Metric(O))
 	})
-	return (seenNN + (popNN/2))/len(label)
+	score := (p_mean + q_mean)
+	return int(score)
+	// _, popNN := min(sample(10, population.Size()), func(i int) int {
+		// O := subgraph.FromShortLabel(population.Get(i))
+		// return int(L.Metric(O))
+	// })
+	// return (seenNN + (popNN/2))/len(label)
+	// return popNN
+	// return seenNN
 }
 
 func (m *DepthMiner) process(lp *isoGroup, send func(*isoGroup)) {

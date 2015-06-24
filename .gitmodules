@@ -10,6 +10,6 @@
 [submodule "src/github.com/timtadh/fs2"]
 	path = src/github.com/timtadh/fs2
 	url = git@github.com:timtadh/fs2.git
-[submodule "src/github.com/antzucaro/matchr"]
-	path = src/github.com/antzucaro/matchr
-	url = git@github.com:antzucaro/matchr.git
+[submodule "src/github.com/timtadh/matrix"]
+	path = src/github.com/timtadh/matrix
+	url = git@github.com:timtadh/go.matrix
