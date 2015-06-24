@@ -76,7 +76,7 @@ func (sg *Subgraph) Metric(o *Subgraph) float64 {
 		log.Fatal(err)
 	}
 	norm := W2.DenseMatrix().TwoNorm()
-	mean := norm/float64(W.Rows()*W.Cols() + len(sg.V) + len(o.V) )
+	mean := norm/float64(W.Rows()*W.Cols() + len(sg.V) + len(o.V))
 	metric := math.Sqrt(mean)
 	return metric
 }

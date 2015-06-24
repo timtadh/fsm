@@ -18,6 +18,11 @@ func init() {
 	}
 }
 
+type Samplable interface {
+	Size() int
+	Get(i int) []byte
+}
+
 func sample(size, populationSize int) (sample []int) {
 	if size >= populationSize {
 		sample = make([]int, 0, populationSize)
@@ -61,20 +66,28 @@ func replacingSample(size, populationSize int) (sample []int) {
 	return sample
 }
 
-func mean(items []int, f func(item int) int) (mean, variance float64) {
+func populationTotal(popSize, sampleSize, mean, variance float64) (total, totalVar float64) {
+	diff := popSize - sampleSize
+	if diff < 0 {
+		diff = 0
+	}
+	return popSize*mean, popSize * (diff)*(variance/sampleSize)
+}
+
+func mean(items []int, f func(item int) float64) (mean, variance float64) {
 	if len(items) == 0 {
 		return -1, -1
 	}
-	F := make([]int, len(items))
-	sum := 0
+	F := make([]float64, len(items))
+	var sum float64
 	for j, i := range items {
 		F[j] = f(i)
 		sum += F[j]
 	}
-	mean = float64(sum) / float64(len(items))
-	s2 := float64(0)
+	mean = sum / float64(len(items))
+	var s2 float64
 	for _, f := range F {
-		d := float64(f) - mean
+		d := f - mean
 		s2 += d*d
 	}
 	if len(items) > 1 {
@@ -85,7 +98,7 @@ func mean(items []int, f func(item int) int) (mean, variance float64) {
 	return mean, variance
 }
 
-func min(items []int, f func(item int) int) (arg, min int) {
+func min(items []int, f func(item int) float64) (arg int, min float64) {
 	arg = -1
 	for _, i := range items {
 		d := f(i)
@@ -97,7 +110,7 @@ func min(items []int, f func(item int) int) (arg, min int) {
 	return arg, min
 }
 
-func max(items []int, f func(item int) int) (arg, max int) {
+func max(items []int, f func(item int) float64) (arg int, max float64) {
 	arg = -1
 	for _, i := range items {
 		d := f(i)

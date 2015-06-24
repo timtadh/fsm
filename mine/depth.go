@@ -17,7 +17,7 @@ import (
 	"github.com/timtadh/fsm/subgraph"
 )
 
-type Scorer func([]byte, *Queue) int
+type Scorer func([]byte, *Queue) float64
 
 type partition []*goiso.SubGraph
 
@@ -62,6 +62,9 @@ func Depth(
 	switch scoreName {
 	case "random": m.Score = m.RandomScore
 	case "neighbor": m.Score = m.NeighborScore
+	case "queue": m.Score = m.QueueScore
+	case "processed": m.Score = m.ProcessedScore
+	case "size-random": m.Score = m.SizeRandomScore
 	default: panic(fmt.Errorf("Unknown Score Function"))
 	}
 
@@ -129,42 +132,52 @@ func (m *DepthMiner) search(N int) {
 }
 
 func (m *DepthMiner) takeOne(queue *Queue) *isoGroup {
-	i, _ := max(sample(10, queue.Size()), func(i int) int { return m.score(queue.Get(i), queue) })
+	i, ms := max(sample(10, queue.Size()), func(i int) float64 { return m.score(queue.Get(i), queue) })
+	log.Println("max score", ms)
 	return queue.Pop(i)
 }
 
 func (m *DepthMiner) dropOne(queue *Queue) {
-	i, _ := min(sample(10, queue.Size()), func(i int) int { return m.score(queue.Get(i), queue) })
+	i, _ := min(sample(10, queue.Size()), func(i int) float64 { return m.score(queue.Get(i), queue) })
 	queue.Pop(i)
 }
 
-func (m *DepthMiner) score(label []byte, population *Queue) int {
+func (m *DepthMiner) score(label []byte, population *Queue) float64 {
 	return m.Score(label, population)
 }
 
-func (m *DepthMiner) RandomScore(label []byte, population *Queue) int {
-	return rand.Intn(100)
+func (m *DepthMiner) RandomScore(label []byte, population *Queue) float64 {
+	return rand.Float64()
 }
 
-func (m *DepthMiner) NeighborScore(label []byte, population *Queue) int {
+func (m *DepthMiner) SizeRandomScore(label []byte, population *Queue) float64 {
+	return (1/float64(len(label)))*(100*rand.Float64())
+}
+
+func (m *DepthMiner) QueueScore(label []byte, population *Queue) float64 {
+	return m.queueScore(label, population)
+}
+
+func (m *DepthMiner) ProcessedScore(label []byte, population *Queue) float64 {
+	return m.queueScore(label, m.processed)
+}
+
+func (m *DepthMiner) queueScore(label []byte, queue Samplable) float64 {
+	sampleSize := 10
 	L := subgraph.FromShortLabel(label)
-	q_mean, _ := mean(replacingSample(10, m.processed.Size()), func(i int) int {
-		O := subgraph.FromShortLabel(m.processed.Get(i))
-		return int(L.Metric(O))
+	mean, _ := mean(replacingSample(sampleSize, queue.Size()), func(i int) float64 {
+		O := subgraph.FromShortLabel(queue.Get(i))
+		return L.Metric(O)
 	})
-	p_mean, _ := mean(replacingSample(10, population.Size()), func(i int) int {
-		O := subgraph.FromShortLabel(population.Get(i))
-		return int(L.Metric(O))
-	})
-	score := (p_mean + q_mean)
-	return int(score)
-	// _, popNN := min(sample(10, population.Size()), func(i int) int {
-		// O := subgraph.FromShortLabel(population.Get(i))
-		// return int(L.Metric(O))
-	// })
-	// return (seenNN + (popNN/2))/len(label)
-	// return popNN
-	// return seenNN
+	if len(L.E) > 0 {
+		return (1/float64(len(L.V) * len(L.E))) * mean
+	} else {
+		return mean
+	}
+}
+
+func (m *DepthMiner) NeighborScore(label []byte, population *Queue) float64 {
+	return m.queueScore(label, population)*.5 + m.queueScore(label, m.processed)
 }
 
 func (m *DepthMiner) process(lp *isoGroup, send func(*isoGroup)) {
