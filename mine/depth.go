@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 )
 
 import (
@@ -14,10 +13,12 @@ import (
 	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/goiso"
 	"github.com/timtadh/fsm/store"
-	"github.com/timtadh/fsm/subgraph"
 )
 
-type Scorer func([]byte, *Queue) float64
+type Scorer interface {
+	Score([]byte, Samplable) float64
+	Kernel(Samplable) Kernel
+}
 
 type partition []*goiso.SubGraph
 
@@ -29,7 +30,7 @@ type isoGroup struct {
 type DepthMiner struct {
 	Graph *goiso.Graph
 	ScoreName string
-	Score Scorer
+	Scorer Scorer
 	Support int
 	MaxSupport int
 	MinVertices int
@@ -60,11 +61,12 @@ func Depth(
 		queued: NewSeen(),
 	}
 	switch scoreName {
-	case "random": m.Score = m.RandomScore
-	case "neighbor": m.Score = m.NeighborScore
-	case "queue": m.Score = m.QueueScore
-	case "processed": m.Score = m.ProcessedScore
-	case "size-random": m.Score = m.SizeRandomScore
+	case "random": m.Scorer = &RandomScore{}
+	case "pq": m.Scorer = &PQScore{m}
+	case "queue": m.Scorer = &QueueScore{}
+	case "rand-queue": m.Scorer = &RandomQueueScore{}
+	case "processed": m.Scorer = &ProcessedScore{m}
+	case "size-random": m.Scorer = &SizeRandomScore{}
 	default: panic(fmt.Errorf("Unknown Score Function"))
 	}
 
@@ -132,53 +134,31 @@ func (m *DepthMiner) search(N int) {
 }
 
 func (m *DepthMiner) takeOne(queue *Queue) *isoGroup {
-	i, ms := max(sample(10, queue.Size()), func(i int) float64 { return m.score(queue.Get(i), queue) })
+	k := m.Scorer.Kernel(queue)
+	var i int
+	var ms float64
+	if k != nil {
+		i, ms = max(srange(len(k)), func(i int) float64 { return k.Mean(i) })
+	} else {
+		i, ms = max(sample(10, queue.Size()), func(i int) float64 { return m.Scorer.Score(queue.Get(i), queue) })
+	}
 	log.Println("max score", ms)
 	return queue.Pop(i)
 }
 
 func (m *DepthMiner) dropOne(queue *Queue) {
-	i, _ := min(sample(10, queue.Size()), func(i int) float64 { return m.score(queue.Get(i), queue) })
+	k := m.Scorer.Kernel(queue)
+	var i int
+	var ms float64
+	if k != nil {
+		i, ms = min(srange(len(k)), func(i int) float64 { return k.Mean(i) })
+	} else {
+		i, ms = min(sample(10, queue.Size()), func(i int) float64 { return m.Scorer.Score(queue.Get(i), queue) })
+	}
+	log.Println("min score", ms)
 	queue.Pop(i)
 }
 
-func (m *DepthMiner) score(label []byte, population *Queue) float64 {
-	return m.Score(label, population)
-}
-
-func (m *DepthMiner) RandomScore(label []byte, population *Queue) float64 {
-	return rand.Float64()
-}
-
-func (m *DepthMiner) SizeRandomScore(label []byte, population *Queue) float64 {
-	return (1/float64(len(label)))*(100*rand.Float64())
-}
-
-func (m *DepthMiner) QueueScore(label []byte, population *Queue) float64 {
-	return m.queueScore(label, population)
-}
-
-func (m *DepthMiner) ProcessedScore(label []byte, population *Queue) float64 {
-	return m.queueScore(label, m.processed)
-}
-
-func (m *DepthMiner) queueScore(label []byte, queue Samplable) float64 {
-	sampleSize := 10
-	L := subgraph.FromShortLabel(label)
-	mean, _ := mean(replacingSample(sampleSize, queue.Size()), func(i int) float64 {
-		O := subgraph.FromShortLabel(queue.Get(i))
-		return L.Metric(O)
-	})
-	if len(L.E) > 0 {
-		return (1/float64(len(L.V) * len(L.E))) * mean
-	} else {
-		return mean
-	}
-}
-
-func (m *DepthMiner) NeighborScore(label []byte, population *Queue) float64 {
-	return m.queueScore(label, population)*.5 + m.queueScore(label, m.processed)
-}
 
 func (m *DepthMiner) process(lp *isoGroup, send func(*isoGroup)) {
 	if m.processed.Has(lp.label) {

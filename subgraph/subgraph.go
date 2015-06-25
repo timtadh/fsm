@@ -76,19 +76,26 @@ func (sg *Subgraph) Metric(o *Subgraph) float64 {
 		log.Fatal(err)
 	}
 	norm := W2.DenseMatrix().TwoNorm()
-	mean := norm/float64(W.Rows()*W.Cols() + len(sg.V) + len(o.V))
+	denom := float64(len(rlabels))
+	mean := norm/denom
 	metric := math.Sqrt(mean)
 	return metric
 }
 
 func (sg *Subgraph) LE(labels map[uint32]int) (L, E matrix.Matrix) {
-	L = matrix.Zeros(len(labels), len(sg.V))
-	E = matrix.Zeros(len(sg.V), len(sg.V))
+	V := len(sg.V)
+	VE := V + len(sg.E)
+	L = matrix.Zeros(len(labels), VE)
+	E = matrix.Zeros(VE, VE)
 	for i, color := range sg.V {
 		L.Set(labels[color], i, 1)
 	}
 	for i := range sg.E {
-		E.Set(sg.E[i].Src, sg.E[i].Targ, float64(labels[sg.E[i].Color]))
+		L.Set(labels[sg.E[i].Color], V + i, 1)
+	}
+	for i := range sg.E {
+		E.Set(sg.E[i].Src, V + i, 1)
+		E.Set(V + i, sg.E[i].Targ, 1)
 	}
 	return L, E
 }

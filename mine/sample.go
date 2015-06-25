@@ -23,13 +23,17 @@ type Samplable interface {
 	Get(i int) []byte
 }
 
+func srange(size int) []int {
+	sample := make([]int, 0, size)
+	for i := 0; i < size; i++ {
+		sample = append(sample, i)
+	}
+	return sample
+}
+
 func sample(size, populationSize int) (sample []int) {
 	if size >= populationSize {
-		sample = make([]int, 0, populationSize)
-		for i := 0; i < populationSize; i++ {
-			sample = append(sample, i)
-		}
-		return sample
+		return srange(populationSize)
 	}
 	in := func(x int, items []int) bool {
 		for _, y := range items {
@@ -52,11 +56,7 @@ func sample(size, populationSize int) (sample []int) {
 
 func replacingSample(size, populationSize int) (sample []int) {
 	if size >= populationSize {
-		sample = make([]int, 0, populationSize)
-		for i := 0; i < populationSize; i++ {
-			sample = append(sample, i)
-		}
-		return sample
+		return srange(populationSize)
 	}
 	sample = make([]int, 0, size)
 	for i := 0; i < size; i++ {
@@ -64,6 +64,32 @@ func replacingSample(size, populationSize int) (sample []int) {
 		sample = append(sample, j)
 	}
 	return sample
+}
+
+type Kernel [][]float64
+
+func (k Kernel) Mean(i int) float64 {
+	mean, _ := mean(srange(len(k)), func(j int) float64 {
+		return k[i][j]
+	})
+	return mean
+}
+
+func kernel(items []int, f func(i, j int) float64) Kernel {
+	scores := make(Kernel, len(items))
+	for i := range scores {
+		scores[i] = make([]float64, len(items))
+	}
+	for x, i := range items {
+		for y, j := range items {
+			if i == j {
+				scores[x][y] = 0
+			} else {
+				scores[x][y] = f(i, j)
+			}
+		}
+	}
+	return scores
 }
 
 func populationTotal(popSize, sampleSize, mean, variance float64) (total, totalVar float64) {
