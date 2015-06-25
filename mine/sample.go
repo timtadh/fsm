@@ -2,6 +2,7 @@ package mine
 
 import (
 	"encoding/binary"
+	"log"
 	"math/rand"
 	"os"
 )
@@ -144,6 +145,9 @@ func max(items []int, f func(item int) float64) (arg int, max float64) {
 			max = d
 			arg = i
 		}
+	}
+	if arg < 0 {
+		log.Panic("arg < 0")
 	}
 	return arg, max
 }

@@ -12,7 +12,7 @@ import (
 
 type RandomScore struct{}
 func (r *RandomScore) Score(label []byte, population Samplable) float64 { return rand.Float64() }
-func (r *RandomScore) Kernel(population Samplable) Kernel { return nil }
+func (r *RandomScore) Kernel(population Samplable, s []int) Kernel { return nil }
 
 
 type SizeRandomScore struct{}
@@ -21,15 +21,15 @@ func (r *SizeRandomScore) Score(label []byte, population Samplable) float64 {
 	V := int(binary.BigEndian.Uint32(label[4:8]))
 	return (1/float64(V*E))*(100*rand.Float64())
 }
-func (r *SizeRandomScore) Kernel(population Samplable) Kernel { return nil }
+func (r *SizeRandomScore) Kernel(population Samplable, s []int) Kernel { return nil }
 
 
 type QueueScore struct{}
 func (q *QueueScore) Score(label []byte, population Samplable) float64 {
 	return subgraphScore(label, population)
 }
-func (q *QueueScore) Kernel(population Samplable) Kernel {
-	return subgraphKernel(population)
+func (q *QueueScore) Kernel(population Samplable, s []int) Kernel {
+	return subgraphKernel(population, s)
 }
 
 
@@ -39,8 +39,8 @@ type ProcessedScore struct{
 func (p *ProcessedScore) Score(label []byte, population Samplable) float64 {
 	return subgraphScore(label, p.m.processed)
 }
-func (p *ProcessedScore) Kernel(population Samplable) Kernel {
-	return subgraphKernel(p.m.processed)
+func (p *ProcessedScore) Kernel(population Samplable, s []int) Kernel {
+	return subgraphKernel(p.m.processed, sample(len(s), p.m.processed.Size()))
 }
 
 type PQScore struct{
@@ -49,9 +49,9 @@ type PQScore struct{
 func (p *PQScore) Score(label []byte, population Samplable) float64 {
 	return subgraphScore(label, population)*.5 + subgraphScore(label, p.m.processed)
 }
-func (p *PQScore) Kernel(population Samplable) Kernel {
-	a := subgraphKernel(population)
-	b := subgraphKernel(p.m.processed)
+func (p *PQScore) Kernel(population Samplable, s []int) Kernel {
+	a := subgraphKernel(population, s)
+	b := subgraphKernel(p.m.processed, sample(len(s), p.m.processed.Size()))
 	return kernel(srange(len(a)), func(i, j int) float64 {
 		return a[i][j]*.5 + b[i][j]
 	})
@@ -72,8 +72,7 @@ func (q *RandomQueueScore) Score(label []byte, population Samplable) float64 {
 	})
 	return mean
 }
-func (q *RandomQueueScore) Kernel(population Samplable) Kernel {
-	s := sample(10, population.Size())
+func (q *RandomQueueScore) Kernel(population Samplable, s []int) Kernel {
 	sgs := make(map[int]*subgraph.Subgraph, len(s))
 	return kernel(s, func(i, j int) float64 {
 		if rand.Float64() < (3/float64(len(s))) {
@@ -91,8 +90,7 @@ func (q *RandomQueueScore) Kernel(population Samplable) Kernel {
 }
 
 
-func subgraphKernel(population Samplable) Kernel {
-	s := sample(10, population.Size())
+func subgraphKernel(population Samplable, s []int) Kernel {
 	sgs := make(map[int]*subgraph.Subgraph, len(s))
 	for _, i := range s {
 		sgs[i] = subgraph.FromShortLabel(population.Get(i))

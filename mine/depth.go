@@ -17,7 +17,7 @@ import (
 
 type Scorer interface {
 	Score([]byte, Samplable) float64
-	Kernel(Samplable) Kernel
+	Kernel(Samplable, []int) Kernel
 }
 
 type partition []*goiso.SubGraph
@@ -134,26 +134,30 @@ func (m *DepthMiner) search(N int) {
 }
 
 func (m *DepthMiner) takeOne(queue *Queue) *isoGroup {
-	k := m.Scorer.Kernel(queue)
+	s := sample(10, queue.Size())
+	k := m.Scorer.Kernel(queue, s)
 	var i int
 	var ms float64
-	if k != nil {
+	if len(k) > 0 {
 		i, ms = max(srange(len(k)), func(i int) float64 { return k.Mean(i) })
+		i = s[i]
 	} else {
-		i, ms = max(sample(10, queue.Size()), func(i int) float64 { return m.Scorer.Score(queue.Get(i), queue) })
+		i, ms = max(s, func(i int) float64 { return m.Scorer.Score(queue.Get(i), queue) })
 	}
 	log.Println("max score", ms)
 	return queue.Pop(i)
 }
 
 func (m *DepthMiner) dropOne(queue *Queue) {
-	k := m.Scorer.Kernel(queue)
+	s := sample(10, queue.Size())
+	k := m.Scorer.Kernel(queue, s)
 	var i int
 	var ms float64
-	if k != nil {
+	if len(k) > 0 {
 		i, ms = min(srange(len(k)), func(i int) float64 { return k.Mean(i) })
+		i = s[i]
 	} else {
-		i, ms = min(sample(10, queue.Size()), func(i int) float64 { return m.Scorer.Score(queue.Get(i), queue) })
+		i, ms = min(s, func(i int) float64 { return m.Scorer.Score(queue.Get(i), queue) })
 	}
 	log.Println("min score", ms)
 	queue.Pop(i)
