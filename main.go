@@ -270,6 +270,7 @@ func main() {
 		case "--modes":
 			fmt.Println("breadth")
 			fmt.Println("depth")
+			fmt.Println("random-walk")
 			os.Exit(0)
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown flag '%v'\n", oa.Opt())
@@ -285,10 +286,155 @@ func main() {
 		Breadth(args[1:])
 	case "depth":
 		Depth(args[1:])
+	case "random-walk":
+		RandomWalk(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown mode %v\n", args[0])
 		Usage(ErrorCodes["opts"])
 	}
+	log.Println("Done!")
+}
+
+func RandomWalk(argv []string) {
+	log.Printf("Number of goroutines = %v", runtime.NumGoroutine())
+	args, optargs, err := getopt.GetOpt(
+		argv,
+		"hs:m:o:",
+		[]string{
+			"help",
+			"support=",
+			"min-vertices=",
+			"sample-size=",
+			"mem-profile=",
+			"cpu-profile=",
+			"output=",
+		},
+	)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		Usage(ErrorCodes["opts"])
+	}
+
+	support := -1
+	minVertices := 5
+	sampleSize := -1
+	memProfile := ""
+	cpuProfile := ""
+	outputDir := ""
+	for _, oa := range optargs {
+		switch oa.Opt() {
+		case "-h", "--help":
+			Usage(0)
+		case "-o", "--output":
+			outputDir = AssertDir(oa.Arg())
+		case "-s", "--support":
+			support = ParseInt(oa.Arg())
+		case "-m", "--min-vertices":
+			minVertices = ParseInt(oa.Arg())
+		case "--sample-size":
+			sampleSize = ParseInt(oa.Arg())
+		case "--mem-profile":
+			memProfile = AssertFile(oa.Arg())
+		case "--cpu-profile":
+			cpuProfile = AssertFile(oa.Arg())
+		}
+	}
+
+	if support < 1 {
+		fmt.Fprintf(os.Stderr, "You must supply a support greater than 0, you gave %v\n", support)
+		Usage(ErrorCodes["opts"])
+	}
+
+	if sampleSize < 1 {
+		fmt.Fprintf(os.Stderr, "You must supply a sample-size greater than 0, you gave %v\n", sampleSize)
+		Usage(ErrorCodes["opts"])
+	}
+
+	if outputDir == "" {
+		fmt.Fprintf(os.Stderr, "You must supply an output file (use -o)\n")
+		Usage(ErrorCodes["opts"])
+	}
+
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "Expected a path to the graph file")
+		Usage(ErrorCodes["opts"])
+	}
+	getReader := func() (io.Reader, func()) { return Input(args[0]) }
+
+	if cpuProfile != "" {
+		f, err := os.Create(cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+		err = pprof.StartCPUProfile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	var memProfFile io.WriteCloser
+	if memProfile != "" {
+		f, err := os.Create(memProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		memProfFile = f
+		defer f.Close()
+	}
+
+	allPath := path.Join(outputDir, "all-embeddings.bptree")
+	maxPath := path.Join(outputDir, "max-embeddings.bptree")
+	nodePath := path.Join(outputDir, "node-attrs.bptree")
+
+	nodeBf, err := fmap.CreateBlockFile(nodePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nodeBf.Close()
+	nodeAttrs, err := bptree.New(nodeBf, 4, -1)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	G, err := graph.LoadGraph(getReader, "", nodeAttrs, nil)
+	if err != nil {
+		log.Println("Error loading the graph")
+		log.Panic(err)
+	}
+	log.Print("Loaded graph, about to start mining")
+
+	all := store.NewFs2BpTree(G, allPath)
+	defer all.Close()
+
+	max := store.NewFs2BpTree(G, maxPath)
+	defer max.Close()
+
+	all_embeddings, max_embeddings := mine.RandomWalk(
+		G,
+		support,
+		minVertices,
+		sampleSize,
+		memProfFile,
+	)
+	go func() {
+		for sg := range max_embeddings {
+			max.Add(sg.ShortLabel(), sg)
+		}
+	}()
+	for sg := range all_embeddings {
+		all.Add(sg.ShortLabel(), sg)
+	}
+	log.Println("Finished mining! Writing output...")
+	keys := make(chan []byte)
+	go func() {
+		for key, next := max.Keys()(); next != nil; key, next = next() {
+			keys<-key
+		}
+		close(keys)
+	}()
+	writeMaximalPatterns(keys, max, nodeAttrs, outputDir)
 	log.Println("Done!")
 }
 
@@ -658,6 +804,14 @@ func writeAllPatterns(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir s
 }
 
 func writeMaximalSubGraphs(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir string) {
+	keys, err := mine.MaximalSubGraphs(all, nodeAttrs, outputDir) 
+	if err != nil {
+		log.Fatal(err)
+	}
+	writeMaximalPatterns(keys, all, nodeAttrs, outputDir)
+}
+
+func writeMaximalPatterns(keys <-chan []byte, sgs store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir string) {
 	maxe, err := os.Create(path.Join(outputDir, "maximal-embeddings.dot"))
 	if err != nil {
 		log.Fatal(err)
@@ -668,15 +822,10 @@ func writeMaximalSubGraphs(all store.SubGraphs, nodeAttrs *bptree.BpTree, output
 		log.Fatal(err)
 	}
 	defer maxp.Close()
-	keys, err := mine.MaximalSubGraphs(all, nodeAttrs, outputDir) 
-	if err != nil {
-		log.Fatal(err)
-	}
 	for key := range keys {
-		writePattern(maxe, maxp, nodeAttrs, all, key)
+		writePattern(maxe, maxp, nodeAttrs, sgs, key)
 	}
 }
-
 
 func writePattern(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
 	i := 0

@@ -294,7 +294,6 @@ func (m *DepthMiner) nonOverlapping(sgs partition) partition {
 			}
 		}
 		releaseSet(s)
-		i++
 	}
 	releaseSet(vids)
 	return non_overlapping

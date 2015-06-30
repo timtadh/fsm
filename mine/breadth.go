@@ -357,6 +357,7 @@ func (m *BreadthMiner) do_extend(sg *goiso.SubGraph, send func(*goiso.SubGraph))
 type Collectors struct {
 	trees []store.SubGraphs
 	chs []chan<- *labelGraph
+	done chan bool
 }
 
 type labelGraph struct {
@@ -364,7 +365,7 @@ type labelGraph struct {
 	sg *goiso.SubGraph
 }
 
-func (m *BreadthMiner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
+func (m *BreadthMiner) collector(tree store.SubGraphs, in <-chan *labelGraph, done chan bool) {
 	for lg := range in {
 		{
 			key := lg.label
@@ -385,24 +386,29 @@ func (m *BreadthMiner) collector(tree store.SubGraphs, in <-chan *labelGraph) {
 		}
 		tree.Add(lg.label, lg.sg)
 	}
+	done<-true
 }
 
 func (m *BreadthMiner) makeCollectors(N int) *Collectors {
 	trees := make([]store.SubGraphs, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
+	done := make(chan bool)
 	for i := 0; i < N; i++ {
 		tree := m.MakeStore()
 		ch := make(chan *labelGraph, 1)
 		trees = append(trees, tree)
 		chs = append(chs, ch)
-		go m.collector(tree, ch)
+		go m.collector(tree, ch, done)
 	}
-	return &Collectors{trees, chs}
+	return &Collectors{trees, chs, done}
 }
 
 func (c *Collectors) close() {
 	for _, ch := range c.chs {
 		close(ch)
+	}
+	for i := 0; i < len(c.chs); i++ {
+		<-c.done
 	}
 }
 
