@@ -482,19 +482,6 @@ func (c *Collectors) send(sg *goiso.SubGraph) {
 	lg := &labelGraph{label, sg}
 	bkt := hash(label) % len(c.chs)
 	next := bkt
-	{
-		key := label
-		if len(key) < 0 {
-			panic(fmt.Errorf("Key was a bad value %d %v %p\n%p", len(key), key, key, sg))
-		}
-		if sg == nil {
-			panic(fmt.Errorf("sg was a nil %d %v %p\n%p", len(key), key, key, sg))
-		}
-		value := sg.Serialize()
-		if len(value) < 0 {
-			panic(fmt.Errorf("Could not serialize sg, %v\n%v\n%v", len(value), sg, value))
-		}
-	}
 	for i := 0; i < len(c.chs); i++ {
 		select {
 		case c.chs[next]<-lg:
@@ -514,12 +501,12 @@ func (c *Collectors) keys() (kit store.BytesIterator) {
 		peek[i], its[i] = its[i]()
 	}
 	getMin := func() int {
-		min := 0
+		min := -1
 		for i := range peek {
 			if peek[i] == nil {
 				continue
 			}
-			if bytes.Compare(peek[i], peek[min]) < 0 {
+			if min == -1 || bytes.Compare(peek[i], peek[min]) <= 0 {
 				min = i
 			}
 		}
@@ -530,7 +517,7 @@ func (c *Collectors) keys() (kit store.BytesIterator) {
 		item = last
 		for bytes.Equal(item, last) {
 			min := getMin()
-			if peek[min] == nil {
+			if min == -1 {
 				return nil, nil
 			}
 			item = peek[min]

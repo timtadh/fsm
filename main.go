@@ -316,7 +316,7 @@ func RandomWalk(argv []string) {
 	}
 
 	support := -1
-	minVertices := 5
+	minVertices := -1
 	sampleSize := -1
 	memProfile := ""
 	cpuProfile := ""
@@ -411,20 +411,15 @@ func RandomWalk(argv []string) {
 	max := store.NewFs2BpTree(G, maxPath)
 	defer max.Close()
 
-	all_embeddings, max_embeddings := mine.RandomWalk(
+	m := mine.RandomWalk(
 		G,
 		support,
 		minVertices,
 		sampleSize,
 		memProfFile,
 	)
-	go func() {
-		for sg := range max_embeddings {
-			max.Add(sg.ShortLabel(), sg)
-		}
-	}()
-	for sg := range all_embeddings {
-		all.Add(sg.ShortLabel(), sg)
+	for sg := range m.MaxReport {
+		max.Add(sg.ShortLabel(), sg)
 	}
 	log.Println("Finished mining! Writing output...")
 	keys := make(chan []byte)
@@ -435,6 +430,17 @@ func RandomWalk(argv []string) {
 		close(keys)
 	}()
 	writeMaximalPatterns(keys, max, nodeAttrs, outputDir)
+	log.Println("Finished writing patterns. Computing probabilities...")
+	for key, next := max.Keys()(); next != nil; key, next = next() {
+		log.Println("-----------------------------------")
+		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
+			P, err := m.SelectionProbability(sg)
+			if err == nil {
+				log.Println(P, sg.Label())
+			}
+			break
+		}
+	}
 	log.Println("Done!")
 }
 

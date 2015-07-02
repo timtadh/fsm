@@ -45,6 +45,7 @@ func FromShortLabel(label []byte) *Subgraph {
 	return sg
 }
 
+
 func (sg *Subgraph) Metric(o *Subgraph) float64 {
 	labels := make(map[uint32]int, len(sg.V)+len(o.V))
 	rlabels := make([]uint32, 0, len(sg.V)+len(o.V))
