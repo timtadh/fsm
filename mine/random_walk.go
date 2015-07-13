@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"runtime"
 	"sort"
-	"time"
 )
 
 import (
+	"github.com/timtadh/data-structures/hashtable"
 	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/data-structures/set"
 	"github.com/timtadh/goiso"
@@ -26,6 +25,10 @@ type RandomWalkMiner struct {
 	SampleSize int
 	PLevel int
 	AllReport, MaxReport chan *goiso.SubGraph
+	startingPoints *set.SortedSet
+	allEmbeddings *Collectors
+	extended *hashtable.LinearHash
+	supportedExtensions *hashtable.LinearHash
 }
 
 type isoGroupWithSet struct {
@@ -53,6 +56,8 @@ func RandomWalk(
 		PLevel: runtime.NumCPU(),
 		AllReport: make(chan *goiso.SubGraph),
 		MaxReport: make(chan *goiso.SubGraph),
+		extended: hashtable.NewLinearHash(),
+		supportedExtensions: hashtable.NewLinearHash(),
 	}
 	go m.sample(sampleSize)
 	return m
@@ -60,7 +65,8 @@ func RandomWalk(
 
 func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, error) {
 	lattice := sg.Lattice()
-	vp, p := m.probabilities(lattice)
+	p := m.probabilities(lattice)
+	vp := m.startingPoints.Size()
 	if len(sg.V) == 1 {
 		return 1.0/float64(vp), nil
 	}
@@ -103,32 +109,17 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 	return x, nil
 }
 
-func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) (int, []int) {
+func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) []int {
 	P := make([]int, len(lattice.V))
-	embeddings := m.initial()
-	startingPoints := 0
-	for _, next := embeddings.keys()(); next != nil; _, next = next() {
-		startingPoints++
-	}
 	// log.Println(startingPoints, "start")
 	for i, sg := range lattice.V {
 		key := sg.ShortLabel()
-		part := m.partition(key, embeddings)
+		part := m.partition(key)
 		// This is incorrect, I am doing multiple extensions of the SAME graph
 		// ending up with wierdness. I need to make sure I only extend a graph
 		// ONCE.
-		keys := m.extendInto(part, embeddings)
-		count := 0
-		maxSup := 0
-		for k, next := keys.Items()(); next != nil; k, next = next() {
-			p := m.partition([]byte(k.(types.ByteSlice)), embeddings)
-			if len(p) > maxSup {
-				maxSup = len(p)
-			}
-			if len(p) >= m.Support - 2 {
-				count++
-			}
-		}
+		keys := m.extensions(part)
+		count := m.supportedKeys(key, keys).Size()
 		if i + 1 == len(lattice.V) {
 			P[i] = -1
 		} else if count == 0 {
@@ -141,14 +132,14 @@ func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) (int, []int) {
 			// log.Println(P[i], part[0].Label())
 		}
 	}
-	embeddings.close()
-	embeddings.delete()
-	return startingPoints, P
+	return P
 }
 
 func (m *RandomWalkMiner) sample(size int) {
 	WORKERS := 1
-	initial := m.initial()
+	if m.allEmbeddings == nil {
+		m.allEmbeddings, m.startingPoints = m.initial()
+	}
 	done := make(chan bool)
 	sample := make(chan int)
 	go func() {
@@ -161,7 +152,7 @@ func (m *RandomWalkMiner) sample(size int) {
 		go func() {
 			for _ = range sample {
 				for {
-					part := m.walk(initial)
+					part := m.walk()
 					if len(part[0].V) < m.MinVertices {
 						log.Println("found mfsg but it was too small", part[0].Label())
 						continue
@@ -180,27 +171,25 @@ func (m *RandomWalkMiner) sample(size int) {
 		<-done
 	}
 	close(done)
-	initial.delete()
 	close(m.AllReport)
 	close(m.MaxReport)
 }
 
-func (m *RandomWalkMiner) walk(initial *Collectors) partition {
-	node := m.randomInitialPartition(initial)
+func (m *RandomWalkMiner) walk() partition {
+	node := m.randomInitialPartition()
 	exts := m.extensions(node)
-	log.Printf("start node (%v) (%d) %v", exts.size(), len(node), node[0].Label())
-	next := m.randomPartition(exts)
+	log.Printf("start node (%v) (%d) %v", exts.Size(), len(node), node[0].Label())
+	next := m.randomPartition(node[0].ShortLabel(), exts)
 	for len(next) >= m.Support {
 		node = next
 		exts = m.extensions(node)
-		log.Printf("cur node (%v) (%d) %v", exts.size(), len(node), node[0].Label())
-		next = m.randomPartition(exts)
-		exts.delete()
+		log.Printf("cur node (%v) (%d) %v", exts.Size(), len(node), node[0].Label())
+		next = m.randomPartition(node[0].ShortLabel(), exts)
 	}
 	return node
 }
 
-func (m *RandomWalkMiner) initial() *Collectors {
+func (m *RandomWalkMiner) initial() (*Collectors, *set.SortedSet) {
 	groups := m.makeCollectors(m.PLevel)
 	for i := range m.Graph.V {
 		v := &m.Graph.V[i]
@@ -209,10 +198,14 @@ func (m *RandomWalkMiner) initial() *Collectors {
 			groups.send(sg)
 		}
 	}
-	return groups
+	startingPoints := set.NewSortedSet(10)
+	for key, next := groups.keys()(); next != nil; key, next = next() {
+		startingPoints.Add(types.ByteSlice(key))
+	}
+	return groups, startingPoints
 }
 
-func (m *RandomWalkMiner) extendInto(sgs []*goiso.SubGraph, exts *Collectors) *set.SortedSet {
+func (m *RandomWalkMiner) extend(sgs []*goiso.SubGraph, send func(*goiso.SubGraph)) {
 	type extension struct {
 		sg *goiso.SubGraph
 		e *goiso.Edge
@@ -265,56 +258,103 @@ func (m *RandomWalkMiner) extendInto(sgs []*goiso.SubGraph, exts *Collectors) *s
 		}
 		close(extend)
 	}()
-	keys := set.NewSortedSet(10)
 	for esg := range extended {
-		keys.Add(types.ByteSlice(esg.ShortLabel()))
-		exts.send(esg)
+		send(esg)
 	}
+}
+
+func (m *RandomWalkMiner) extensions(sgs []*goiso.SubGraph) *set.SortedSet {
+	label := types.ByteSlice(sgs[0].ShortLabel())
+	if m.extended.Has(label) {
+		keys, err := m.extended.Get(label)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return keys.(*set.SortedSet)
+	}
+	keys := set.NewSortedSet(10)
+	m.extend(sgs, func(sg *goiso.SubGraph) {
+		m.allEmbeddings.send(sg)
+		keys.Add(types.ByteSlice(sg.ShortLabel()))
+	})
+	m.extended.Put(label, keys)
 	return keys
 }
 
-func (m *RandomWalkMiner) extensions(sgs []*goiso.SubGraph) *Collectors {
-	exts := m.makeCollectors(m.PLevel)
-	m.extendInto(sgs, exts)
-	runtime.Gosched()
-	time.Sleep(1*time.Millisecond)
-	exts.close()
-	return exts
+func (m *RandomWalkMiner) supportedKeys(from []byte, keys *set.SortedSet) *set.SortedSet {
+	key := types.ByteSlice(from)
+	if m.supportedExtensions.Has(key) {
+		supKeys, err := m.supportedExtensions.Get(key)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return supKeys.(*set.SortedSet)
+	}
+	keysCh := make(chan []byte)
+	partKeys := make(chan []byte)
+	done := make(chan bool)
+	for i := 0; i < m.PLevel; i++ {
+		go func() {
+			for key := range keysCh {
+				if len(m.getPartition(key)) >= m.Support {
+					partKeys<-key
+				}
+			}
+			done<-true
+		}()
+	}
+	go func() {
+		for k, next := keys.Items()(); next != nil; k, next = next() {
+			keysCh<-[]byte(k.(types.ByteSlice))
+		}
+		close(keysCh)
+	}()
+	go func() {
+		for i := 0; i < m.PLevel; i++ {
+			<-done
+		}
+		close(partKeys)
+		close(done)
+	}()
+	supKeys := set.NewSortedSet(10)
+	for partKey := range partKeys {
+		supKeys.Add(types.ByteSlice(partKey))
+	}
+	m.supportedExtensions.Put(key, supKeys)
+	return supKeys
 }
 
-func (m *RandomWalkMiner) randomPartition(c *Collectors) partition {
-	keys := make([][]byte, 0, 10)
-	for key, next := c.keys()(); next != nil; key, next = next() {
-		part := make(partition, 0, 10)
-		for _, sg, next := c.partitionIterator(key)(); next != nil; _, sg, next = next() {
-			part = append(part, sg)
-		}
-		part = m.nonOverlapping(part)
-		if len(part) >= m.Support {
-			keys = append(keys, key)
-		}
+func (m *RandomWalkMiner) getPartition(key []byte) partition {
+	part := make(partition, 0, 10)
+	for _, sg, next := m.allEmbeddings.partitionIterator(key)(); next != nil; _, sg, next = next() {
+		part = append(part, sg)
 	}
-	// here we know the probability of the next hop for this node
-	// we should cache it.
-	if len(keys) <= 0 {
+	return m.nonOverlapping(part)
+}
+
+func (m *RandomWalkMiner) randomPartition(from []byte, keys *set.SortedSet) partition {
+	supKeys := m.supportedKeys(from, keys)
+	if supKeys.Size() <= 0 {
 		return nil
 	}
-	key := keys[rand.Intn(len(keys))]
-	return m.partition(key, c)
-}
-
-func (m *RandomWalkMiner) randomInitialPartition(c *Collectors) partition {
-	keys := make([][]byte, 0, 10)
-	for key, next := c.keys()(); next != nil; key, next = next() {
-		keys = append(keys, key)
+	key, err := supKeys.Random()
+	if err != nil {
+		log.Fatal(err)
 	}
-	key := keys[rand.Intn(len(keys))]
-	return m.partition(key, c)
+	return m.partition(key.(types.ByteSlice))
 }
 
-func (m *RandomWalkMiner) partition(key []byte, c *Collectors) partition {
+func (m *RandomWalkMiner) randomInitialPartition() partition {
+	key, err := m.startingPoints.Random()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return m.partition(key.(types.ByteSlice))
+}
+
+func (m *RandomWalkMiner) partition(key []byte) partition {
 	part := make(partition, 0, 10)
-	for _, e, next := c.partitionIterator(key)(); next != nil; _, e, next = next() {
+	for _, e, next := m.allEmbeddings.partitionIterator(key)(); next != nil; _, e, next = next() {
 		part = append(part, e)
 	}
 	return m.nonOverlapping(part)

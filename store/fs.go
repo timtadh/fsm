@@ -45,6 +45,18 @@ func NewFs2BpTree(g *goiso.Graph, path string) *Fs2BpTree {
 	return newFs2BpTree(g, bf)
 }
 
+func OpenFs2BpTree(g *goiso.Graph, path string) *Fs2BpTree {
+	bf, err := fmap.OpenBlockFile(path)
+	assert_ok(err)
+	bpt, err := bptree.Open(bf)
+	assert_ok(err)
+	return &Fs2BpTree {
+		g: g,
+		bf: bf,
+		bpt: bpt,
+	}
+}
+
 func newFs2BpTree(g *goiso.Graph, bf *fmap.BlockFile) *Fs2BpTree {
 	bpt, err := bptree.New(bf, -1, -1)
 	assert_ok(err)
