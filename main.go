@@ -236,6 +236,30 @@ func AssertDir(dir string) string {
 	return dir
 }
 
+func EmptyDir(dir string) string {
+	dir = path.Clean(dir)
+	_, err := os.Stat(dir)
+	if err != nil && os.IsNotExist(err) {
+		err := os.MkdirAll(dir, 0775)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else if err != nil {
+		log.Fatal(err)
+	} else {
+		// something already exists lets delete it
+		err := os.RemoveAll(dir)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = os.MkdirAll(dir, 0775)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	return dir
+}
+
 func AssertFile(fname string) string {
 	fname = path.Clean(fname)
 	fi, err := os.Stat(fname)
@@ -326,7 +350,7 @@ func RandomWalk(argv []string) {
 		case "-h", "--help":
 			Usage(0)
 		case "-o", "--output":
-			outputDir = AssertDir(oa.Arg())
+			outputDir = EmptyDir(AssertDir(oa.Arg()))
 		case "-s", "--support":
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
@@ -838,10 +862,11 @@ func writeMaximalPatterns(keys <-chan []byte, sgs store.SubGraphs, nodeAttrs *bp
 }
 
 func writePattern(count int, outDir string, embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
-	patDir := AssertDir(path.Join(outDir, fmt.Sprintf("%d", count)))
+	patDir := EmptyDir(path.Join(outDir, fmt.Sprintf("%d", count)))
 	patDot := path.Join(patDir, "pattern.dot")
+	patVeg := path.Join(patDir, "pattern.veg")
 	patName := path.Join(patDir, "pattern.name")
-	instDir := AssertDir(path.Join(patDir, "instances"))
+	instDir := EmptyDir(path.Join(patDir, "instances"))
 	i := 0
 	for _, sg, next := all.Find(key)(); next != nil; _, sg, next = next() {
 		if i == 0 {
@@ -862,9 +887,16 @@ func writePattern(count int, outDir string, embeddings, patterns io.Writer, node
 				fmt.Fprintln(name, sg.Label())
 				name.Close()
 			}
+			if veg, err := os.Create(patVeg); err != nil {
+				log.Fatal(err)
+			} else {
+				veg.Write(sg.VEG(nil))
+				veg.Close()
+			}
 		}
-		curDir := AssertDir(path.Join(instDir, fmt.Sprintf("%d", i)))
+		curDir := EmptyDir(path.Join(instDir, fmt.Sprintf("%d", i)))
 		emDot := path.Join(curDir, "embedding.dot")
+		emVeg := path.Join(curDir, "embedding.veg")
 		if nodeAttrs != nil {
 			attrs := make(map[int]map[string]interface{})
 			for _, v := range sg.V {
@@ -891,6 +923,12 @@ func writePattern(count int, outDir string, embeddings, patterns io.Writer, node
 				fmt.Fprintln(em, sg.StringWithAttrs(attrs))
 				em.Close()
 			}
+			if veg, err := os.Create(emVeg); err != nil {
+				log.Fatal(err)
+			} else {
+				veg.Write(sg.VEG(attrs))
+				veg.Close()
+			}
 		} else {
 			fmt.Fprintln(embeddings, sg.String())
 			if em, err := os.Create(emDot); err != nil {
@@ -898,6 +936,12 @@ func writePattern(count int, outDir string, embeddings, patterns io.Writer, node
 			} else {
 				fmt.Fprintln(em, sg.String())
 				em.Close()
+			}
+			if veg, err := os.Create(emVeg); err != nil {
+				log.Fatal(err)
+			} else {
+				veg.Write(sg.VEG(nil))
+				veg.Close()
 			}
 		}
 		i++
