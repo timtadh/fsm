@@ -455,15 +455,25 @@ func RandomWalk(argv []string) {
 	}()
 	writeMaximalPatterns(keys, max, nodeAttrs, outputDir)
 	log.Println("Finished writing patterns. Computing probabilities...")
+	count := 0
 	for key, next := max.Keys()(); next != nil; key, next = next() {
+		patDir := path.Join(outputDir, fmt.Sprintf("%d", count))
 		log.Println("-----------------------------------")
 		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
 			P, err := m.SelectionProbability(sg)
 			if err == nil {
 				log.Println(P, sg.Label())
+				patPr := path.Join(patDir, "pattern.pr")
+				if pr, err := os.Create(patPr); err != nil {
+					log.Fatal(err)
+				} else {
+					fmt.Fprintln(pr, P)
+					pr.Close()
+				}
 			}
 			break
 		}
+		count++
 	}
 	log.Println("Done!")
 }
@@ -859,6 +869,13 @@ func writeMaximalPatterns(keys <-chan []byte, sgs store.SubGraphs, nodeAttrs *bp
 		writePattern(count, outputDir, maxe, maxp, nodeAttrs, sgs, key)
 		count++
 	}
+	countPath := path.Join(outputDir, "count")
+	if c, err := os.Create(countPath); err != nil {
+		log.Fatal(err)
+	} else {
+		fmt.Fprintln(c, count)
+		c.Close()
+	}
 }
 
 func writePattern(count int, outDir string, embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
@@ -866,6 +883,7 @@ func writePattern(count int, outDir string, embeddings, patterns io.Writer, node
 	patDot := path.Join(patDir, "pattern.dot")
 	patVeg := path.Join(patDir, "pattern.veg")
 	patName := path.Join(patDir, "pattern.name")
+	patCount := path.Join(patDir, "count")
 	instDir := EmptyDir(path.Join(patDir, "instances"))
 	i := 0
 	for _, sg, next := all.Find(key)(); next != nil; _, sg, next = next() {
@@ -945,6 +963,12 @@ func writePattern(count int, outDir string, embeddings, patterns io.Writer, node
 			}
 		}
 		i++
+	}
+	if c, err := os.Create(patCount); err != nil {
+		log.Fatal(err)
+	} else {
+		fmt.Fprintln(c, i)
+		c.Close()
 	}
 	fmt.Fprintln(patterns)
 	fmt.Fprintln(patterns)
