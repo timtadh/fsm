@@ -804,8 +804,10 @@ func writeAllPatterns(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir s
 		log.Fatal(err)
 	}
 	defer allp.Close()
+	count := 0
 	for key, next := all.Keys()(); next != nil; key, next = next() {
-		writePattern(alle, allp, nodeAttrs, all, key)
+		writePattern(count, outputDir, alle, allp, nodeAttrs, all, key)
+		count++
 	}
 }
 
@@ -828,12 +830,18 @@ func writeMaximalPatterns(keys <-chan []byte, sgs store.SubGraphs, nodeAttrs *bp
 		log.Fatal(err)
 	}
 	defer maxp.Close()
+	count := 0
 	for key := range keys {
-		writePattern(maxe, maxp, nodeAttrs, sgs, key)
+		writePattern(count, outputDir, maxe, maxp, nodeAttrs, sgs, key)
+		count++
 	}
 }
 
-func writePattern(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
+func writePattern(count int, outDir string, embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
+	patDir := AssertDir(path.Join(outDir, fmt.Sprintf("%d", count)))
+	patDot := path.Join(patDir, "pattern.dot")
+	patName := path.Join(patDir, "pattern.name")
+	instDir := AssertDir(path.Join(patDir, "instances"))
 	i := 0
 	for _, sg, next := all.Find(key)(); next != nil; _, sg, next = next() {
 		if i == 0 {
@@ -842,7 +850,21 @@ func writePattern(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all 
 			fmt.Fprintln(patterns, sg.String())
 			fmt.Fprintln(embeddings, "//", sg.Label())
 			fmt.Fprintln(embeddings)
+			if pat, err := os.Create(patDot); err != nil {
+				log.Fatal(err)
+			} else {
+				fmt.Fprintln(pat, sg.String())
+				pat.Close()
+			}
+			if name, err := os.Create(patName); err != nil {
+				log.Fatal(err)
+			} else {
+				fmt.Fprintln(name, sg.Label())
+				name.Close()
+			}
 		}
+		curDir := AssertDir(path.Join(instDir, fmt.Sprintf("%d", i)))
+		emDot := path.Join(curDir, "embedding.dot")
 		if nodeAttrs != nil {
 			attrs := make(map[int]map[string]interface{})
 			for _, v := range sg.V {
@@ -863,8 +885,20 @@ func writePattern(embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all 
 				}
 			}
 			fmt.Fprintln(embeddings, sg.StringWithAttrs(attrs))
+			if em, err := os.Create(emDot); err != nil {
+				log.Fatal(err)
+			} else {
+				fmt.Fprintln(em, sg.StringWithAttrs(attrs))
+				em.Close()
+			}
 		} else {
 			fmt.Fprintln(embeddings, sg.String())
+			if em, err := os.Create(emDot); err != nil {
+				log.Fatal(err)
+			} else {
+				fmt.Fprintln(em, sg.String())
+				em.Close()
+			}
 		}
 		i++
 	}

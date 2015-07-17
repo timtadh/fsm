@@ -87,21 +87,18 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 			Q.Set(e.Src, e.Targ, 1.0/float64(p[e.Src]))
 		}
 	}
-	// We could take the inverse of (I - Q)
-	// How that is slow. Instead we will
-	// sumpow(Q, |E|) times.
-	// I := matrix.Eye(Q.Rows())
-	// IQ, err := I.Minus(Q)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// N := matrix.Inverse(IQ)
-	IQ := matrix.Eye(Q.Rows())
-	err := IQ.Add(Q)
+	I := matrix.Eye(Q.Rows())
+	IQ, err := I.Minus(Q)
 	if err != nil {
 		log.Fatal(err)
 	}
-	N := sumpow(Q, len(sg.E))
+	N := matrix.Inverse(IQ)
+	// IQ := matrix.Eye(Q.Rows())
+	// err := IQ.Add(Q)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// N := sumpow(Q, len(sg.E))
 	B, err := N.Times(R)
 	if err != nil {
 		log.Fatal(err)
