@@ -105,7 +105,7 @@ func (sg *Subgraph) Walks(labels map[uint32]int) (W matrix.Matrix) {
 	var err error
 	L, E := sg.LE(labels)
 	LT := matrix.Transpose(L)
-	var En matrix.Matrix = matrix.Ones(E.Rows(), E.Cols())
+	var En matrix.Matrix = matrix.Eye(E.Rows())
 	var SEn matrix.Matrix = matrix.Zeros(E.Rows(), E.Cols())
 	for i := 0; i < len(sg.V); i++ {
 		En, err = En.Times(E)

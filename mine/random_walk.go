@@ -65,13 +65,14 @@ func RandomWalk(
 
 func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, error) {
 	lattice := sg.Lattice()
+	log.Printf("lattice size %d %v", len(lattice.V), sg.Label())
 	p := m.probabilities(lattice)
+	log.Println("got transistion probabilities")
 	vp := m.startingPoints.Size()
 	if len(sg.V) == 1 {
 		return 1.0/float64(vp), nil
 	}
 	Q := matrix.Zeros(len(lattice.V)-1, len(lattice.V)-1)
-	I := matrix.Eye(Q.Rows())
 	R := matrix.Zeros(Q.Rows(), 1)
 	u := matrix.Zeros(1, Q.Cols())
 	for i, x := range lattice.V {
@@ -86,11 +87,21 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 			Q.Set(e.Src, e.Targ, 1.0/float64(p[e.Src]))
 		}
 	}
-	IQ, err := I.Minus(Q)
+	// We could take the inverse of (I - Q)
+	// How that is slow. Instead we will
+	// sumpow(Q, |E|) times.
+	// I := matrix.Eye(Q.Rows())
+	// IQ, err := I.Minus(Q)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// N := matrix.Inverse(IQ)
+	IQ := matrix.Eye(Q.Rows())
+	err := IQ.Add(Q)
 	if err != nil {
 		log.Fatal(err)
 	}
-	N := matrix.Inverse(IQ)
+	N := sumpow(Q, len(sg.E))
 	B, err := N.Times(R)
 	if err != nil {
 		log.Fatal(err)
@@ -107,6 +118,23 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 		return 0, fmt.Errorf("could not accurately compute p")
 	}
 	return x, nil
+}
+
+func sumpow(A *matrix.DenseMatrix, exponent int) *matrix.DenseMatrix {
+	var An matrix.Matrix = matrix.Eye(A.Rows())
+	var S matrix.Matrix = matrix.Zeros(A.Rows(), A.Cols())
+	var err error
+	for i := 0; i < exponent; i++ {
+		An, err = An.Times(A)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = S.Add(An)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	return S.DenseMatrix()
 }
 
 func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) []int {
