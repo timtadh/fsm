@@ -289,6 +289,9 @@ func (m *RandomWalkMiner) extend(sgs []*goiso.SubGraph, send func(*goiso.SubGrap
 }
 
 func (m *RandomWalkMiner) extensions(sgs []*goiso.SubGraph) *set.SortedSet {
+	if len(sgs) == 0 {
+		return set.NewSortedSet(10)
+	}
 	label := types.ByteSlice(sgs[0].ShortLabel())
 	if m.extended.Has(label) {
 		keys, err := m.extended.Get(label)
