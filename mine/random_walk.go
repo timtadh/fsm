@@ -213,6 +213,9 @@ func (m *RandomWalkMiner) walk() partition {
 		exts = m.extensions(node)
 		log.Printf("cur node (%v) (%d) %v", exts.Size(), len(node), node[0].Label())
 		next = m.randomPartition(node[0].ShortLabel(), exts)
+		if len(next) >= m.Support && len(next[0].E) == len(node[0].E) {
+			break
+		}
 	}
 	return node
 }
