@@ -178,7 +178,10 @@ func (m *RandomWalkMiner) sample(size int) {
 			for _ = range sample {
 				for {
 					part := m.walk()
-					if len(part[0].V) < m.MinVertices {
+					if len(part) < m.Support {
+						log.Println("found mfsg but it did not have enough support", part[0].Label())
+						continue
+					} else if len(part[0].V) < m.MinVertices {
 						log.Println("found mfsg but it was too small", part[0].Label())
 						continue
 					}

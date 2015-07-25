@@ -449,6 +449,9 @@ func RandomWalk(argv []string) {
 	keys := make(chan []byte)
 	go func() {
 		for key, next := max.Keys()(); next != nil; key, next = next() {
+			if max.Count(key) < support {
+				continue
+			}
 			keys<-key
 		}
 		close(keys)
@@ -457,6 +460,9 @@ func RandomWalk(argv []string) {
 	log.Println("Finished writing patterns. Computing probabilities...")
 	count := 0
 	for key, next := max.Keys()(); next != nil; key, next = next() {
+		if max.Count(key) < support {
+			continue
+		}
 		patDir := path.Join(outputDir, fmt.Sprintf("%d", count))
 		log.Println("-----------------------------------")
 		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
