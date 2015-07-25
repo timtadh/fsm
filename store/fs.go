@@ -186,7 +186,7 @@ func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
 func (self *Fs2BpTree) Find(key []byte) (it Iterator) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	kvi, err := self.bpt.UnsafeRange(key, key)
+	kvi, err := self.bpt.Find(key)
 	assert_ok(err)
 	return self.kvIter(kvi)
 }
