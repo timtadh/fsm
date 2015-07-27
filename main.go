@@ -26,6 +26,7 @@ package main
 import (
 	"compress/gzip"
 	"encoding/binary"
+	"encoding/json"
 	// "encoding/hex"
 	"fmt"
 	"io"
@@ -491,6 +492,32 @@ func RandomWalk(argv []string) {
 		patDir := path.Join(outputDir, fmt.Sprintf("%d", count))
 		log.Println("-----------------------------------")
 		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
+			vp, Q, R, u, err := m.PrMatrices(sg)
+			if err != nil {
+				log.Println(Q)
+			} else {
+				bytes, err := json.Marshal(map[string]interface{}{
+					"Q": Q,
+					"R": R,
+					"u": u,
+					"startingPoints": vp,
+				})
+				if err != nil {
+					log.Fatal(err)
+				}
+				matPath := path.Join(patDir, "matrices.json")
+				if m, err := os.Create(matPath); err != nil {
+					log.Fatal(err)
+				} else {
+					_, err := m.Write(bytes)
+					if err != nil {
+						m.Close()
+						log.Fatal(err)
+					}
+					m.Close()
+				}
+			}
+			/*
 			P, err := m.SelectionProbability(sg)
 			if err == nil {
 				log.Println(P, sg.Label())
@@ -502,6 +529,7 @@ func RandomWalk(argv []string) {
 					pr.Close()
 				}
 			}
+			*/
 			break
 		}
 		count++

@@ -66,6 +66,38 @@ func RandomWalk(
 	return m
 }
 
+type SparseEntry struct {
+	Row, Col int
+	Value float64
+	Inverse int
+}
+
+type Sparse []*SparseEntry
+
+func (m *RandomWalkMiner) PrMatrices(sg *goiso.SubGraph) (vp int, Q, R, u Sparse, err error) {
+	lattice := sg.Lattice()
+	log.Printf("lattice size %d %v", len(lattice.V), sg.Label())
+	p := m.probabilities(lattice)
+	log.Println("got transistion probabilities", p)
+	vp = m.startingPoints.Size()
+	Q = make(Sparse, 0, len(lattice.V)-1)
+	R = make(Sparse, 0, len(lattice.V)-1)
+	u = make(Sparse, 0, len(lattice.V)-1)
+	for i, x := range lattice.V {
+		if len(x.V) == 1 && len(x.E) == 0 && i < len(lattice.V)-1 {
+			u = append(u, &SparseEntry{0, i, 1.0/float64(vp), vp})
+		}
+	}
+	for _, e := range lattice.E {
+		if e.Targ >= len(lattice.V)-1 {
+			R = append(R, &SparseEntry{e.Src, 0, 1.0/float64(p[e.Src]), p[e.Src]})
+		} else {
+			Q = append(Q, &SparseEntry{e.Src, e.Targ, 1.0/float64(p[e.Src]), p[e.Src]})
+		}
+	}
+	return vp, Q, R, u, nil
+}
+
 func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, error) {
 	lattice := sg.Lattice()
 	log.Printf("lattice size %d %v", len(lattice.V), sg.Label())
