@@ -25,6 +25,7 @@ type RandomWalkMiner struct {
 	SampleSize int
 	PLevel int
 	AllReport, MaxReport chan *goiso.SubGraph
+	StoreMaker func() store.SubGraphs
 	startingPoints *set.SortedSet
 	allEmbeddings *Collectors
 	extended *hashtable.LinearHash
@@ -45,6 +46,7 @@ func RandomWalk(
 	G *goiso.Graph,
 	support, minVertices, sampleSize int,
 	memProf io.Writer,
+	StoreMaker func() store.SubGraphs,
 ) (
 	m *RandomWalkMiner,
 ) {
@@ -56,6 +58,7 @@ func RandomWalk(
 		PLevel: runtime.NumCPU(),
 		AllReport: make(chan *goiso.SubGraph),
 		MaxReport: make(chan *goiso.SubGraph),
+		StoreMaker: StoreMaker,
 		extended: hashtable.NewLinearHash(),
 		supportedExtensions: hashtable.NewLinearHash(),
 	}
@@ -399,7 +402,7 @@ func (m *RandomWalkMiner) makeCollectors(N int) *Collectors {
 	chs := make([]chan<- *labelGraph, 0, N)
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
-		tree := store.AnonFs2BpTree(m.Graph)
+		tree := m.StoreMaker()
 		ch := make(chan *labelGraph, 1)
 		trees = append(trees, tree)
 		chs = append(chs, ch)

@@ -327,6 +327,7 @@ func RandomWalk(argv []string) {
 		[]string{
 			"help",
 			"support=",
+			"cache=",
 			"min-vertices=",
 			"sample-size=",
 			"mem-profile=",
@@ -345,6 +346,7 @@ func RandomWalk(argv []string) {
 	memProfile := ""
 	cpuProfile := ""
 	outputDir := ""
+	cache := ""
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -355,6 +357,8 @@ func RandomWalk(argv []string) {
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			minVertices = ParseInt(oa.Arg())
+		case "--cache":
+			cache = AssertDir(oa.Arg())
 		case "--sample-size":
 			sampleSize = ParseInt(oa.Arg())
 		case "--mem-profile":
@@ -435,12 +439,32 @@ func RandomWalk(argv []string) {
 	max := store.NewFs2BpTree(G, maxPath)
 	defer max.Close()
 
+	fsCount := 0
+	fsMaker := func() store.SubGraphs {
+		name := fmt.Sprintf("fsm_bptree_%d", fsCount)
+		fsCount++
+		path := path.Join(cache, name)
+		return store.NewFs2BpTree(G, path)
+	}
+
+	memFsMaker := func() store.SubGraphs {
+		return store.AnonFs2BpTree(G)
+	}
+
+	var maker func() store.SubGraphs
+	if cache != "" {
+		maker = fsMaker
+	} else {
+		maker = memFsMaker
+	}
+
 	m := mine.RandomWalk(
 		G,
 		support,
 		minVertices,
 		sampleSize,
 		memProfFile,
+		maker,
 	)
 	for sg := range m.MaxReport {
 		max.Add(sg.ShortLabel(), sg)
@@ -458,6 +482,7 @@ func RandomWalk(argv []string) {
 	}()
 	writeMaximalPatterns(keys, max, nodeAttrs, outputDir)
 	log.Println("Finished writing patterns. Computing probabilities...")
+
 	count := 0
 	for key, next := max.Keys()(); next != nil; key, next = next() {
 		if max.Count(key) < support {
