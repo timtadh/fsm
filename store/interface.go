@@ -55,7 +55,7 @@ func DeserializeParentedSg(g *goiso.Graph, bytes []byte) *ParentedSg {
 	{
 		s := off
 		e := s + int(lenSG)
-		sg = goiso.DeserializeSubGraph(g, bytes[s:e])
+		sg = goiso.DeserializeSubGraph(g, bytes[s:e], []byte("parented sg"))
 	}
 	return NewParentedSg(parent, sg)
 }

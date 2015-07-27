@@ -22,10 +22,6 @@ func serializeValue(value *goiso.SubGraph) []byte {
 	return value.Serialize()
 }
 
-func deserializeValue(g *goiso.Graph, bytes []byte) (value *goiso.SubGraph) {
-	return goiso.DeserializeSubGraph(g, bytes)
-}
-
 type Fs2BpTree struct {
 	g *goiso.Graph
 	bf *fmap.BlockFile
@@ -177,7 +173,7 @@ func (self *Fs2BpTree) kvIter(kvi bptree.KVIterator) (it Iterator) {
 		if kvi == nil {
 			return nil, nil, nil
 		}
-		sg := goiso.DeserializeSubGraph(self.g, bytes)
+		sg := goiso.DeserializeSubGraph(self.g, bytes, key)
 		return key, sg, it
 	}
 	return it
@@ -195,7 +191,7 @@ func (self *Fs2BpTree) Remove(key []byte, where func(*goiso.SubGraph) bool) erro
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	return self.bpt.Remove(key, func(bytes []byte) bool {
-		sg := goiso.DeserializeSubGraph(self.g, bytes)
+		sg := goiso.DeserializeSubGraph(self.g, bytes, key)
 		return where(sg)
 	})
 }
