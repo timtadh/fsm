@@ -70,7 +70,9 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 	lattice := sg.Lattice()
 	log.Printf("lattice size %d %v", len(lattice.V), sg.Label())
 	p := m.probabilities(lattice)
-	log.Println("got transistion probabilities")
+	log.Println("got transistion probabilities", p)
+	return 0, fmt.Errorf("testing get p")
+	/*
 	vp := m.startingPoints.Size()
 	if len(sg.V) == 1 {
 		return 1.0/float64(vp), nil
@@ -118,6 +120,7 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 		return 0, fmt.Errorf("could not accurately compute p")
 	}
 	return x, nil
+	*/
 }
 
 func sumpow(A *matrix.DenseMatrix, exponent int) *matrix.DenseMatrix {
