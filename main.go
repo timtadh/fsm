@@ -494,7 +494,14 @@ func RandomWalk(argv []string) {
 		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
 			vp, Q, R, u, err := m.PrMatrices(sg)
 			if err != nil {
-				log.Println(Q)
+				log.Println(err)
+				errPath := path.Join(patDir, "error")
+				if f, e := os.Create(errPath); e != nil {
+					log.Fatal(err)
+				} else {
+					fmt.Fprintln(f, err)
+					f.Close()
+				}
 			} else {
 				bytes, err := json.Marshal(map[string]interface{}{
 					"Q": Q,

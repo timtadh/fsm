@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"runtime"
+	"runtime/debug"
 	"sort"
 )
 
@@ -75,6 +76,12 @@ type SparseEntry struct {
 type Sparse []*SparseEntry
 
 func (m *RandomWalkMiner) PrMatrices(sg *goiso.SubGraph) (vp int, Q, R, u Sparse, err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			stack := string(debug.Stack())
+			err = fmt.Errorf("%v\n%v", e, stack)
+		}
+	}()
 	lattice := sg.Lattice()
 	log.Printf("lattice size %d %v", len(lattice.V), sg.Label())
 	p := m.probabilities(lattice)
