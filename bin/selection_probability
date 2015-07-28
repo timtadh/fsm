@@ -51,6 +51,7 @@ def assert_file_exists(path):
     return path
 
 def load(path):
+    print >>sys.stderr, path,
     with open(path) as f:
         j = json.load(f)
     Q = load_matrix((j['Q']['Rows'], j['Q']['Cols']), j['Q']['Entries'])
@@ -65,6 +66,7 @@ def load_matrix(shape, entries):
     return sparse.coo_matrix((data, (rows, cols)), shape)
 
 def probability(Q, R, u):
+    print >>sys.stderr, Q.shape[0],
     I = sparse.eye(Q.shape[0], format='csc')
     N = linalg.inv(I - Q)
     B = N.dot(R)
