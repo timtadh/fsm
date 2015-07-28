@@ -1,3 +1,4 @@
+source $(pwd)/env/bin/activate
 export GOPATH=$(pwd):$GOPATH
 export PATH=$(pwd)/bin:$PATH
 

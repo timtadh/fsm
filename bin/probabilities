@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+DIR=$1
+
+if [ -d $DIR ]; then
+	echo $DIR
+else
+	echo "you must supply a directory"
+	exit 1
+fi
+
+for path in $(find $1 -name 'matrices.json'); do
+	selection_probability -m $path -o $(dirname $path)/pattern.pr
+done
+

@@ -334,6 +334,7 @@ func RandomWalk(argv []string) {
 			"mem-profile=",
 			"cpu-profile=",
 			"output=",
+			"probabilities",
 		},
 	)
 	if err != nil {
@@ -348,6 +349,7 @@ func RandomWalk(argv []string) {
 	cpuProfile := ""
 	outputDir := ""
 	cache := ""
+	matrices := true
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
@@ -358,6 +360,8 @@ func RandomWalk(argv []string) {
 			support = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			minVertices = ParseInt(oa.Arg())
+		case "--probabilities":
+			matrices = false
 		case "--cache":
 			cache = AssertDir(oa.Arg())
 		case "--sample-size":
@@ -492,51 +496,52 @@ func RandomWalk(argv []string) {
 		patDir := path.Join(outputDir, fmt.Sprintf("%d", count))
 		log.Println("-----------------------------------")
 		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
-			vp, Q, R, u, err := m.PrMatrices(sg)
-			if err != nil {
-				log.Println(err)
-				errPath := path.Join(patDir, "error")
-				if f, e := os.Create(errPath); e != nil {
-					log.Fatal(err)
-				} else {
-					fmt.Fprintln(f, err)
-					f.Close()
-				}
-			} else {
-				bytes, err := json.Marshal(map[string]interface{}{
-					"Q": Q,
-					"R": R,
-					"u": u,
-					"startingPoints": vp,
-				})
+			if matrices {
+				vp, Q, R, u, err := m.PrMatrices(sg)
 				if err != nil {
-					log.Fatal(err)
-				}
-				matPath := path.Join(patDir, "matrices.json")
-				if m, err := os.Create(matPath); err != nil {
-					log.Fatal(err)
+					log.Println(err)
+					errPath := path.Join(patDir, "error")
+					if f, e := os.Create(errPath); e != nil {
+						log.Fatal(err)
+					} else {
+						fmt.Fprintln(f, err)
+						f.Close()
+					}
 				} else {
-					_, err := m.Write(bytes)
+					bytes, err := json.Marshal(map[string]interface{}{
+						"Q": Q,
+						"R": R,
+						"u": u,
+						"startingPoints": vp,
+					})
 					if err != nil {
-						m.Close()
 						log.Fatal(err)
 					}
-					m.Close()
+					matPath := path.Join(patDir, "matrices.json")
+					if m, err := os.Create(matPath); err != nil {
+						log.Fatal(err)
+					} else {
+						_, err := m.Write(bytes)
+						if err != nil {
+							m.Close()
+							log.Fatal(err)
+						}
+						m.Close()
+					}
+				}
+			} else {
+				P, err := m.SelectionProbability(sg)
+				if err == nil {
+					log.Println(P, sg.Label())
+					patPr := path.Join(patDir, "pattern.pr")
+					if pr, err := os.Create(patPr); err != nil {
+						log.Fatal(err)
+					} else {
+						fmt.Fprintln(pr, P)
+						pr.Close()
+					}
 				}
 			}
-			/*
-			P, err := m.SelectionProbability(sg)
-			if err == nil {
-				log.Println(P, sg.Label())
-				patPr := path.Join(patDir, "pattern.pr")
-				if pr, err := os.Create(patPr); err != nil {
-					log.Fatal(err)
-				} else {
-					fmt.Fprintln(pr, P)
-					pr.Close()
-				}
-			}
-			*/
 			break
 		}
 		count++

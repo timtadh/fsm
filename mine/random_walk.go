@@ -73,7 +73,10 @@ type SparseEntry struct {
 	Inverse int
 }
 
-type Sparse []*SparseEntry
+type Sparse struct {
+	Rows, Cols int
+	Entries []*SparseEntry
+}
 
 func (m *RandomWalkMiner) PrMatrices(sg *goiso.SubGraph) (vp int, Q, R, u Sparse, err error) {
 	defer func() {
@@ -87,19 +90,31 @@ func (m *RandomWalkMiner) PrMatrices(sg *goiso.SubGraph) (vp int, Q, R, u Sparse
 	p := m.probabilities(lattice)
 	log.Println("got transistion probabilities", p)
 	vp = m.startingPoints.Size()
-	Q = make(Sparse, 0, len(lattice.V)-1)
-	R = make(Sparse, 0, len(lattice.V)-1)
-	u = make(Sparse, 0, len(lattice.V)-1)
+	Q = Sparse{
+		Rows: len(lattice.V)-1,
+		Cols: len(lattice.V)-1,
+		Entries: make([]*SparseEntry, 0, len(lattice.V)-1),
+	}
+	R = Sparse{
+		Rows: len(lattice.V)-1,
+		Cols: 1,
+		Entries: make([]*SparseEntry, 0, len(lattice.V)-1),
+	}
+	u = Sparse{
+		Rows: 1,
+		Cols: len(lattice.V)-1,
+		Entries: make([]*SparseEntry, 0, len(lattice.V)-1),
+	}
 	for i, x := range lattice.V {
 		if len(x.V) == 1 && len(x.E) == 0 && i < len(lattice.V)-1 {
-			u = append(u, &SparseEntry{0, i, 1.0/float64(vp), vp})
+			u.Entries = append(u.Entries, &SparseEntry{0, i, 1.0/float64(vp), vp})
 		}
 	}
 	for _, e := range lattice.E {
 		if e.Targ >= len(lattice.V)-1 {
-			R = append(R, &SparseEntry{e.Src, 0, 1.0/float64(p[e.Src]), p[e.Src]})
+			R.Entries = append(R.Entries, &SparseEntry{e.Src, 0, 1.0/float64(p[e.Src]), p[e.Src]})
 		} else {
-			Q = append(Q, &SparseEntry{e.Src, e.Targ, 1.0/float64(p[e.Src]), p[e.Src]})
+			Q.Entries = append(Q.Entries, &SparseEntry{e.Src, e.Targ, 1.0/float64(p[e.Src]), p[e.Src]})
 		}
 	}
 	return vp, Q, R, u, nil
@@ -110,8 +125,6 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 	log.Printf("lattice size %d %v", len(lattice.V), sg.Label())
 	p := m.probabilities(lattice)
 	log.Println("got transistion probabilities", p)
-	return 0, fmt.Errorf("testing get p")
-	/*
 	vp := m.startingPoints.Size()
 	if len(sg.V) == 1 {
 		return 1.0/float64(vp), nil
@@ -159,7 +172,6 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 		return 0, fmt.Errorf("could not accurately compute p")
 	}
 	return x, nil
-	*/
 }
 
 func sumpow(A *matrix.DenseMatrix, exponent int) *matrix.DenseMatrix {

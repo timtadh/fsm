@@ -1,7 +1,10 @@
 *swp
 *swo
-pkg
-bin
+pkg/
+bin/*
+env
+!bin/selection_probability
+!bin/probabilities
 *.g
 *.png
 data
