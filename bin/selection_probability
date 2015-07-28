@@ -87,7 +87,7 @@ def main(argv):
         elif opt in ('-m', '--matrices',):
             matrices = assert_file_exists(arg)
         elif opt in ('-o', '--output',):
-            output = open(assert_file_exists(arg), 'w')
+            output = open(os.path.abspath(arg), 'w')
         else:
             log("unexpected option", opt, arg)
             usage(1)
