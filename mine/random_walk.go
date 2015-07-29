@@ -268,7 +268,7 @@ func (m *RandomWalkMiner) walk() partition {
 }
 
 func (m *RandomWalkMiner) initial() (*Collectors, *set.SortedSet) {
-	groups := m.makeCollectors(m.PLevel*4)
+	groups := m.makeCollectors(m.PLevel)
 	for i := range m.Graph.V {
 		v := &m.Graph.V[i]
 		if m.Graph.ColorFrequency(v.Color) >= m.Support {
