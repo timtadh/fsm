@@ -1,6 +1,7 @@
 package mine
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -218,44 +219,33 @@ func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) []int {
 }
 
 func (m *RandomWalkMiner) sample(size int) {
-	WORKERS := 1
 	if m.allEmbeddings == nil {
 		m.allEmbeddings, m.startingPoints = m.initial()
 	}
-	done := make(chan bool)
-	sample := make(chan int)
-	go func() {
-		for i := 0; i < size; i++ {
-			sample<-i
-		}
-		close(sample)
-	}()
-	for i := 0; i < WORKERS; i++ {
-		go func() {
-			for _ = range sample {
-				for {
-					part := m.walk()
-					if len(part) < m.Support {
-						log.Println("found mfsg but it did not have enough support", part[0].Label())
-						continue
-					} else if len(part[0].V) < m.MinVertices {
-						log.Println("found mfsg but it was too small", part[0].Label())
-						continue
-					}
-					log.Println("found mfsg", part[0].Label())
-					for _, sg := range part {
-						m.MaxReport<-sg
-					}
-					break
+	for i := 0; i < size; i++ {
+		retry: for {
+			part := m.walk()
+			if len(part) < m.Support {
+				log.Println("found mfsg but it did not have enough support")
+				continue retry
+			} else if len(part[0].V) < m.MinVertices {
+				log.Println("found mfsg but it was too small")
+				continue retry
+			}
+			label := part[0].ShortLabel()
+			for _, sg := range part {
+				if !bytes.Equal(label, sg.ShortLabel()) {
+					log.Println("different subgraphs in part")
+					continue retry
 				}
 			}
-			done<-true
-		}()
+			log.Println("found mfsg", part[0].Label())
+			for _, sg := range part {
+				m.MaxReport<-sg
+			}
+			break retry
+		}
 	}
-	for i := 0; i < WORKERS; i++ {
-		<-done
-	}
-	close(done)
 	close(m.AllReport)
 	close(m.MaxReport)
 }
@@ -263,12 +253,12 @@ func (m *RandomWalkMiner) sample(size int) {
 func (m *RandomWalkMiner) walk() partition {
 	node := m.randomInitialPartition()
 	exts := m.extensions(node)
-	log.Printf("start node (%v) (%d) %v", exts.Size(), len(node), node[0].Label())
+	// log.Printf("start node (%v) (%d) %v", exts.Size(), len(node), node[0].Label())
 	next := m.randomPartition(node[0].ShortLabel(), exts)
 	for len(next) >= m.Support {
 		node = next
 		exts = m.extensions(node)
-		log.Printf("cur node (%v) (%d) %v", exts.Size(), len(node), node[0].Label())
+		// log.Printf("cur node (%v) (%d) %v", exts.Size(), len(node), node[0].Label())
 		next = m.randomPartition(node[0].ShortLabel(), exts)
 		if len(next) >= m.Support && len(next[0].E) == len(node[0].E) {
 			break
@@ -278,7 +268,7 @@ func (m *RandomWalkMiner) walk() partition {
 }
 
 func (m *RandomWalkMiner) initial() (*Collectors, *set.SortedSet) {
-	groups := m.makeCollectors(m.PLevel)
+	groups := m.makeCollectors(m.PLevel*4)
 	for i := range m.Graph.V {
 		v := &m.Graph.V[i]
 		if m.Graph.ColorFrequency(v.Color) >= m.Support {

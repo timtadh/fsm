@@ -446,21 +446,30 @@ func RandomWalk(argv []string) {
 
 	fsCount := 0
 	fsMaker := func() store.SubGraphs {
-		name := fmt.Sprintf("fsm_bptree_%d", fsCount)
+		name := fmt.Sprintf("fsm_sqlite_%d", fsCount)
 		fsCount++
 		path := path.Join(cache, name)
-		return store.NewFs2BpTree(G, path)
+		os.Remove(path)
+		s, err := store.NewSqlite(G, path)
+		if err != nil {
+			log.Panic(err)
+		}
+		return s
 	}
 
-	memFsMaker := func() store.SubGraphs {
-		return store.AnonFs2BpTree(G)
+	memMaker := func() store.SubGraphs {
+		return store.NewMemBpTree(127)
 	}
+
+	// memFsMaker := func() store.SubGraphs {
+	// 	return store.AnonFs2BpTree(G)
+	// }
 
 	var maker func() store.SubGraphs
 	if cache != "" {
 		maker = fsMaker
 	} else {
-		maker = memFsMaker
+		maker = memMaker
 	}
 
 	m := mine.RandomWalk(
@@ -490,11 +499,12 @@ func RandomWalk(argv []string) {
 
 	count := 0
 	for key, next := max.Keys()(); next != nil; key, next = next() {
-		if max.Count(key) < support {
-			continue
-		}
 		patDir := path.Join(outputDir, fmt.Sprintf("%d", count))
 		log.Println("-----------------------------------")
+		if max.Count(key) < support {
+			log.Println("wat not enough subgraphs", max.Count(key))
+			continue
+		}
 		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
 			if matrices {
 				vp, Q, R, u, err := m.PrMatrices(sg)
