@@ -464,6 +464,12 @@ func makePartitions(sgs store.SubGraphs) (p_it partitionIterator) {
 	}
 	return p_it
 }
+
+func (c *Collectors) partitionIterator(key []byte) (pit store.Iterator) {
+	idx := hash(key) % len(c.chs)
+	t := c.trees[idx]
+	return bufferedIterator(t.Find(key), 10)
+}
 */
 
 func (c *Collectors) partsCh() <-chan store.Iterator {
@@ -491,6 +497,29 @@ func (c *Collectors) send(sg *goiso.SubGraph) {
 		}
 	}
 	c.chs[bkt]<-lg
+}
+
+
+func (c *Collectors) partitionIterator(key []byte) (pit store.Iterator) {
+	its := make([]store.Iterator, len(c.trees))
+	for i, tree := range c.trees {
+		its[i] = bufferedIterator(tree.Find(key), 10)
+	}
+	j := 0
+	pit = func() (k []byte, sg *goiso.SubGraph, _ store.Iterator) {
+		for j < len(its) {
+			if its[j] == nil {
+				j++
+			} else {
+				k, sg, its[j] = its[j]()
+				if its[j] != nil {
+					return k, sg, pit
+				}
+			}
+		}
+		return nil, nil, nil
+	}
+	return pit
 }
 
 func (c *Collectors) keys() (kit store.BytesIterator) {
@@ -527,28 +556,6 @@ func (c *Collectors) keys() (kit store.BytesIterator) {
 		return item, kit
 	}
 	return kit
-}
-
-func (c *Collectors) partitionIterator(key []byte) (pit store.Iterator) {
-	its := make([]store.Iterator, len(c.trees))
-	for i, tree := range c.trees {
-		its[i] = bufferedIterator(tree.Find(key), 10)
-	}
-	j := 0
-	pit = func() (k []byte, sg *goiso.SubGraph, _ store.Iterator) {
-		for j < len(its) {
-			if its[j] == nil {
-				j++
-			} else {
-				k, sg, its[j] = its[j]()
-				if its[j] != nil {
-					return k, sg, pit
-				}
-			}
-		}
-		return nil, nil, nil
-	}
-	return pit
 }
 
 func (c *Collectors) size() int {

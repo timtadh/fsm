@@ -44,11 +44,11 @@ func NewSqlite(g *goiso.Graph, path string) (*SqliteStore, error) {
 }
 
 func (s *SqliteStore) CreateTables() error {
-	_, err := s.conn.Exec(`PRAGMA synchronous = OFF;`)
+	_, err := s.conn.Exec(`PRAGMA synchronous=OFF;`)
 	if err != nil {
 		return err
 	}
-	_, err = s.conn.Exec(`PRAGMA journal_mode = MEMORY;`)
+	_, err = s.conn.Exec(`PRAGMA journal_mode=WAL;`)
 	if err != nil {
 		return err
 	}
@@ -56,9 +56,6 @@ func (s *SqliteStore) CreateTables() error {
 		CREATE TABLE subgraphs (
 			label BLOB NOT NULL,
 			subgraph BLOB NOT NULL
-		);
-		CREATE INDEX label_idx ON subgraphs (
-			label
 		);
 		CREATE UNIQUE INDEX label_subgraph_idx ON subgraphs (
 			label, subgraph
