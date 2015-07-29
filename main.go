@@ -446,14 +446,15 @@ func RandomWalk(argv []string) {
 
 	fsCount := 0
 	fsMaker := func() store.SubGraphs {
-		name := fmt.Sprintf("fsm_sqlite_%d", fsCount)
+		name := fmt.Sprintf("fsm_bptree_%d", fsCount)
 		fsCount++
 		path := path.Join(cache, name)
-		os.Remove(path)
-		s, err := store.NewSqlite(G, path)
-		if err != nil {
-			log.Panic(err)
-		}
+		s := store.NewFs2BpTree(G, path)
+		// os.Remove(path)
+		// s, err := store.NewSqlite(G, path)
+		// if err != nil {
+		// 	log.Panic(err)
+		// }
 		return s
 	}
 

@@ -29,7 +29,7 @@ type RandomWalkMiner struct {
 	AllReport, MaxReport chan *goiso.SubGraph
 	StoreMaker func() store.SubGraphs
 	startingPoints *set.SortedSet
-	allEmbeddings *Collectors
+	allEmbeddings Collectors
 	extended *hashtable.LinearHash
 	supportedExtensions *hashtable.LinearHash
 }
@@ -197,12 +197,12 @@ func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) []int {
 	// log.Println(startingPoints, "start")
 	for i, sg := range lattice.V {
 		key := sg.ShortLabel()
-		part := m.partition(key)
+		part := m.partition(key) // READS
 		// This is incorrect, I am doing multiple extensions of the SAME graph
 		// ending up with wierdness. I need to make sure I only extend a graph
 		// ONCE.
-		keys := m.extensions(part)
-		count := m.supportedKeys(key, keys).Size()
+		keys := m.extensions(part) // WRITES
+		count := m.supportedKeys(key, keys).Size() // READS
 		if i + 1 == len(lattice.V) {
 			P[i] = -1
 		} else if count == 0 {
@@ -267,7 +267,7 @@ func (m *RandomWalkMiner) walk() partition {
 	return node
 }
 
-func (m *RandomWalkMiner) initial() (*Collectors, *set.SortedSet) {
+func (m *RandomWalkMiner) initial() (Collectors, *set.SortedSet) {
 	groups := m.makeCollectors(m.PLevel)
 	for i := range m.Graph.V {
 		v := &m.Graph.V[i]
@@ -377,7 +377,7 @@ func (m *RandomWalkMiner) supportedKeys(from []byte, keys *set.SortedSet) *set.S
 	for i := 0; i < m.PLevel; i++ {
 		go func() {
 			for key := range keysCh {
-				if len(m.getPartition(key)) >= m.Support {
+				if len(m.partition(key)) >= m.Support {
 					partKeys<-key
 				}
 			}
@@ -403,14 +403,6 @@ func (m *RandomWalkMiner) supportedKeys(from []byte, keys *set.SortedSet) *set.S
 	}
 	m.supportedExtensions.Put(key, supKeys)
 	return supKeys
-}
-
-func (m *RandomWalkMiner) getPartition(key []byte) partition {
-	part := make(partition, 0, 10)
-	for _, sg, next := m.allEmbeddings.partitionIterator(key)(); next != nil; _, sg, next = next() {
-		part = append(part, sg)
-	}
-	return m.nonOverlapping(part)
 }
 
 func (m *RandomWalkMiner) randomPartition(from []byte, keys *set.SortedSet) partition {
@@ -441,21 +433,7 @@ func (m *RandomWalkMiner) partition(key []byte) partition {
 	return m.nonOverlapping(part)
 }
 
-func (m *RandomWalkMiner) makeCollectors(N int) *Collectors {
-	trees := make([]store.SubGraphs, 0, N)
-	chs := make([]chan<- *labelGraph, 0, N)
-	done := make(chan bool)
-	for i := 0; i < N; i++ {
-		tree := m.StoreMaker()
-		ch := make(chan *labelGraph, 1)
-		trees = append(trees, tree)
-		chs = append(chs, ch)
-		go m.collector(tree, ch, done)
-	}
-	return &Collectors{trees, chs, done}
-}
-
-func (m *RandomWalkMiner) collector(tree store.SubGraphs, in <-chan *labelGraph, done chan bool) {
+func (m *RandomWalkMiner) collector(tree store.SubGraphs, in <-chan *labelGraph, done chan<- bool) {
 	for lg := range in {
 		tree.Add(lg.label, lg.sg)
 	}
