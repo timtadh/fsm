@@ -67,15 +67,23 @@ def load_matrix(shape, entries):
 
 def probability(Q, R, u):
     print >>sys.stderr, Q.shape[0],
-    I = sparse.eye(Q.shape[0], format='csc')
+    I = sparse.eye(Q.shape[0], format=Q.format)
     print >>sys.stderr, "I",
-    N = linalg.inv(I - Q)
+    N = inverse(I - Q)
     print >>sys.stderr, "N",
     B = N.dot(R)
     print >>sys.stderr, "B",
     P = u.dot(B)
     print >>sys.stderr, "P",
     return P[0,0]
+
+def inverse(A):
+    'Only works if A is upper triagular'
+    # return linalg.inv(A)
+    I = sparse.eye(A.shape[0], format=A.format)
+    lu = linalg.spilu(A)
+    return sparse.csc_matrix(lu.solve(I.todense()))
+
 
 def main(argv):
     try:
@@ -87,6 +95,7 @@ def main(argv):
 
     matrices = None
     output = sys.stdout
+    ex = None
     for opt, arg in opts:
         if opt in ('-h', '--help',):
             usage(0)
@@ -94,7 +103,12 @@ def main(argv):
             matrices = assert_file_exists(arg)
         elif opt in ('-o', '--output',):
             path = os.path.abspath(arg)
-            if os.path.exists(path) and os.stat(path).st_size > 0:
+            expath = path + '.ex'
+            if os.path.exists(expath) and os.stat(expath).st_size > 0:
+                with open(expath) as f:
+                    ex = float(f.read())
+            elif os.path.exists(path) and os.stat(path).st_size > 0:
+                log(path)
                 log("cowardly refusing to overwrite output")
                 sys.exit(0)
             output = open(path, 'w')
@@ -106,11 +120,21 @@ def main(argv):
         log("must supply at least a path to the matrices.json")
         usage(1)
 
-    s = time.time()
     with output as f:
-        print >>f, probability(*load(matrices))
-    e = time.time()
-    log("time", round(e-s, 3))
+        s = time.time()
+        p = probability(*load(matrices))
+        e = time.time()
+        print >>sys.stderr, round(p, 5),
+        log("time", round(e-s, 3))
+        if p > 1:
+            log('ERROR', p, '>', 1)
+        elif ex is not None and abs(p - ex) > .01:
+            log('ERROR', p, '!=', ex)
+        elif ex is not None:
+            log("had example no output written")
+        else:
+            print >>f, p
+            log("wrote output")
 
 if __name__ == "__main__":
     main(sys.argv[1:])
