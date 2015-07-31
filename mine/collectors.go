@@ -21,7 +21,8 @@ type Collectors interface {
 }
 
 func (m *RandomWalkMiner) makeCollectors(N int) Collectors {
-	return MakeSerCollector(m.StoreMaker, m.collector)
+	// return MakeSerCollector(m.StoreMaker, m.collector)
+	return MakeParCollector(N, m.StoreMaker, m.collector)
 }
 
 func (m *BreadthMiner) makeCollectors(N int) Collectors {
