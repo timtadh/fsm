@@ -57,20 +57,24 @@ def load(path):
     Q = load_matrix((j['Q']['Rows'], j['Q']['Cols']), j['Q']['Entries'])
     R = load_matrix((j['R']['Rows'], j['R']['Cols']), j['R']['Entries'])
     u = load_matrix((j['u']['Rows'], j['u']['Cols']), j['u']['Entries'])
-    return Q.tocsc(), R.tocsc(), u.tocsc()
+    return Q, R, u
 
 def load_matrix(shape, entries):
     data = [float(e['Value']) for e in entries]
     rows = [float(e['Row']) for e in entries]
     cols = [float(e['Col']) for e in entries]
-    return sparse.coo_matrix((data, (rows, cols)), shape)
+    return sparse.coo_matrix((data, (rows, cols)), shape).tocsc()
 
 def probability(Q, R, u):
     print >>sys.stderr, Q.shape[0],
     I = sparse.eye(Q.shape[0], format='csc')
+    print >>sys.stderr, "I",
     N = linalg.inv(I - Q)
+    print >>sys.stderr, "N",
     B = N.dot(R)
+    print >>sys.stderr, "B",
     P = u.dot(B)
+    print >>sys.stderr, "P",
     return P[0,0]
 
 def main(argv):
@@ -89,7 +93,11 @@ def main(argv):
         elif opt in ('-m', '--matrices',):
             matrices = assert_file_exists(arg)
         elif opt in ('-o', '--output',):
-            output = open(os.path.abspath(arg), 'w')
+            path = os.path.abspath(arg)
+            if os.path.exists(path) and os.stat(path).st_size > 0:
+                log("cowardly refusing to overwrite output")
+                sys.exit(0)
+            output = open(path, 'w')
         else:
             log("unexpected option", opt, arg)
             usage(1)
