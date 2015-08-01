@@ -20,7 +20,7 @@ type Collectors interface {
 	size() int
 	keys() (kit store.BytesIterator)
 	partsCh() <-chan store.Iterator
-	partitionIterator(key []byte) (pit store.Iterator)
+	Find(key []byte) (pit store.Iterator)
 }
 
 func (m *RandomWalkMiner) makeCollectors(N int) Collectors {
@@ -108,14 +108,14 @@ func (c *SerialCollector) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator, 100)
 	go func() {
 		for k, keys := c.keys()(); keys != nil; k, keys = keys() {
-			out <- c.partitionIterator(k)
+			out <- c.Find(k)
 		}
 		close(out)
 	}()
 	return out
 }
 
-func (c *SerialCollector) partitionIterator(key []byte) (pit store.Iterator) {
+func (c *SerialCollector) Find(key []byte) (pit store.Iterator) {
 	return c.tree.Find(key)
 }
 
@@ -216,7 +216,7 @@ func (c *ParHashCollector) makePartitions(sgs store.SubGraphs) (p_it partitionIt
 	return p_it
 }
 
-func (c *ParHashCollector) partitionIterator(key []byte) (pit store.Iterator) {
+func (c *ParHashCollector) Find(key []byte) (pit store.Iterator) {
 	idx := hash(key) % len(c.chs)
 	t := c.graphs[idx]
 	return bufferedIterator(t.Find(key), 10)
@@ -274,7 +274,7 @@ func (c *ParCollector) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator, 100)
 	go func() {
 		for k, keys := c.keys()(); keys != nil; k, keys = keys() {
-			out <- c.partitionIterator(k)
+			out <- c.Find(k)
 		}
 		close(out)
 	}()
@@ -298,7 +298,7 @@ func (c *ParCollector) send(sg *goiso.SubGraph) {
 }
 
 
-func (c *ParCollector) partitionIterator(key []byte) (pit store.Iterator) {
+func (c *ParCollector) Find(key []byte) (pit store.Iterator) {
 	its := make([]store.Iterator, len(c.trees))
 	for i, tree := range c.trees {
 		its[i] = bufferedIterator(tree.Find(key), 10)

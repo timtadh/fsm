@@ -26,11 +26,11 @@ type RandomWalkMiner struct {
 	MinVertices int
 	SampleSize int
 	PLevel int
-	AllReport, MaxReport chan *goiso.SubGraph
+	Report chan []byte
 	MakeStore func() store.SubGraphs
 	MakeUnique func() store.UniqueIndex
 	startingPoints *set.SortedSet
-	allEmbeddings Collectors
+	AllEmbeddings Collectors
 	extended *hashtable.LinearHash
 	supportedExtensions *hashtable.LinearHash
 }
@@ -60,8 +60,7 @@ func RandomWalk(
 		MinVertices: minVertices,
 		SampleSize: sampleSize,
 		PLevel: runtime.NumCPU(),
-		AllReport: make(chan *goiso.SubGraph),
-		MaxReport: make(chan *goiso.SubGraph),
+		Report: make(chan []byte),
 		MakeStore: makeStore,
 		MakeUnique: makeUnique,
 		extended: hashtable.NewLinearHash(),
@@ -222,8 +221,8 @@ func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) []int {
 }
 
 func (m *RandomWalkMiner) sample(size int) {
-	if m.allEmbeddings == nil {
-		m.allEmbeddings, m.startingPoints = m.initial()
+	if m.AllEmbeddings == nil {
+		m.AllEmbeddings, m.startingPoints = m.initial()
 	}
 	for i := 0; i < size; i++ {
 		retry: for {
@@ -243,14 +242,11 @@ func (m *RandomWalkMiner) sample(size int) {
 				}
 			}
 			log.Println("found mfsg", part[0].Label())
-			for _, sg := range part {
-				m.MaxReport<-sg
-			}
+			m.Report<-label
 			break retry
 		}
 	}
-	close(m.AllReport)
-	close(m.MaxReport)
+	close(m.Report)
 }
 
 func (m *RandomWalkMiner) walk() partition {
@@ -358,7 +354,7 @@ func (m *RandomWalkMiner) extensions(sgs []*goiso.SubGraph) *set.SortedSet {
 	}
 	keys := set.NewSortedSet(10)
 	m.extend(sgs, func(sg *goiso.SubGraph) {
-		m.allEmbeddings.send(sg)
+		m.AllEmbeddings.send(sg)
 		keys.Add(types.ByteSlice(sg.ShortLabel()))
 	})
 	m.extended.Put(label, keys)
@@ -430,7 +426,7 @@ func (m *RandomWalkMiner) randomInitialPartition() partition {
 
 func (m *RandomWalkMiner) partition(key []byte) partition {
 	part := make(partition, 0, 10)
-	for _, e, next := m.allEmbeddings.partitionIterator(key)(); next != nil; _, e, next = next() {
+	for _, e, next := m.AllEmbeddings.Find(key)(); next != nil; _, e, next = next() {
 		part = append(part, e)
 	}
 	return m.nonOverlapping(part)

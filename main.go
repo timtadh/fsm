@@ -41,9 +41,11 @@ import (
 )
 
 import (
-	"github.com/timtadh/getopt"
+	"github.com/timtadh/data-structures/hashtable"
+	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/fs2/bptree"
 	"github.com/timtadh/fs2/fmap"
+	"github.com/timtadh/getopt"
 )
 
 import (
@@ -423,8 +425,6 @@ func RandomWalk(argv []string) {
 		defer f.Close()
 	}
 
-	allPath := path.Join(outputDir, "all-embeddings.bptree")
-	maxPath := path.Join(outputDir, "max-embeddings.bptree")
 	nodePath := path.Join(outputDir, "node-attrs.bptree")
 
 	nodeBf, err := fmap.CreateBlockFile(nodePath)
@@ -444,11 +444,6 @@ func RandomWalk(argv []string) {
 	}
 	log.Print("Loaded graph, about to start mining")
 
-	all := store.NewFs2BpTree(G, allPath)
-	defer all.Close()
-
-	max := store.NewFs2BpTree(G, maxPath)
-	defer max.Close()
 
 	sgCount := 0
 	sgMaker := func() store.SubGraphs {
@@ -491,32 +486,49 @@ func RandomWalk(argv []string) {
 		sgMaker,
 		idxMaker,
 	)
-	for sg := range m.MaxReport {
-		max.Add(sg.ShortLabel(), sg)
-	}
-	log.Println("Finished mining! Writing output...")
-	keys := make(chan []byte)
-	go func() {
-		for key, next := max.Keys()(); next != nil; key, next = next() {
-			if max.Count(key) < support {
-				continue
+	keys := hashtable.NewLinearHash()
+	for label := range m.Report {
+		key := types.ByteSlice(label)
+		count := 0
+		if keys.Has(key) {
+			c, err := keys.Get(key)
+			if err != nil {
+				log.Panic(err)
 			}
-			keys<-key
+			count = c.(int)
 		}
-		close(keys)
-	}()
-	writeMaximalPatterns(keys, max, nodeAttrs, outputDir)
-	log.Println("Finished writing patterns. Computing probabilities...")
+		keys.Put(key, count + 1)
+	}
+	{
+		log.Println("Finished mining! Writing output...")
+		keyCh := make(chan []byte)
+		go func() {
+			for k, next := keys.Keys()(); next != nil; k, next = next() {
+				keyCh<-[]byte(k.(types.ByteSlice))
+			}
+			close(keyCh)
+		}()
+		writeMaximalPatterns(keyCh, m.AllEmbeddings, nodeAttrs, outputDir)
+	}
 
+	log.Println("Finished writing patterns. Computing probabilities...")
 	count := 0
-	for key, next := max.Keys()(); next != nil; key, next = next() {
+	for k, c, next := keys.Iterate()(); next != nil; k, c, next = next() {
 		patDir := path.Join(outputDir, fmt.Sprintf("%d", count))
 		log.Println("-----------------------------------")
-		if max.Count(key) < support {
-			log.Println("wat not enough subgraphs", max.Count(key))
-			continue
+		key := []byte(k.(types.ByteSlice))
+		dupCount := c.(int)
+		// if max.Count(key) < support {
+		// 	log.Println("wat not enough subgraphs", max.Count(key))
+		// 	continue
+		// }
+		if c, err := os.Create(path.Join(patDir, "duplicates")); err != nil {
+			log.Fatal(err)
+		} else {
+			fmt.Fprintln(c, dupCount)
+			c.Close()
 		}
-		for _, sg, next := max.Find(key)(); next != nil; _, sg, next = next() {
+		for _, sg, next := m.AllEmbeddings.Find(key)(); next != nil; _, sg, next = next() {
 			if matrices {
 				vp, Q, R, u, err := m.PrMatrices(sg)
 				if err != nil {
@@ -964,7 +976,7 @@ func writeMaximalSubGraphs(all store.SubGraphs, nodeAttrs *bptree.BpTree, output
 	writeMaximalPatterns(keys, all, nodeAttrs, outputDir)
 }
 
-func writeMaximalPatterns(keys <-chan []byte, sgs store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir string) {
+func writeMaximalPatterns(keys <-chan []byte, sgs store.Findable, nodeAttrs *bptree.BpTree, outputDir string) {
 	maxe, err := os.Create(path.Join(outputDir, "maximal-embeddings.dot"))
 	if err != nil {
 		log.Fatal(err)
@@ -989,7 +1001,7 @@ func writeMaximalPatterns(keys <-chan []byte, sgs store.SubGraphs, nodeAttrs *bp
 	}
 }
 
-func writePattern(count int, outDir string, embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.SubGraphs, key []byte) {
+func writePattern(count int, outDir string, embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.Findable, key []byte) {
 	patDir := EmptyDir(path.Join(outDir, fmt.Sprintf("%d", count)))
 	patDot := path.Join(patDir, "pattern.dot")
 	patVeg := path.Join(patDir, "pattern.veg")

@@ -67,11 +67,15 @@ type SubGraphsIterable interface {
 	Backward() Iterator
 }
 
+type Findable interface {
+	Find(key []byte) Iterator
+}
+
 type SubGraphsOperable interface {
+	Findable
 	Has(key []byte) bool
 	Count(key []byte) int
 	Add(key []byte, value *goiso.SubGraph)
-	Find(key []byte) Iterator
 	Remove(key []byte, where func(*goiso.SubGraph) bool) error
 }
 
