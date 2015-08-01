@@ -12,4 +12,5 @@ cpuprof
 memprof
 *.out
 *.pprof
+example/
 
