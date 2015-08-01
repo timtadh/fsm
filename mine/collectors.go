@@ -10,6 +10,9 @@ import (
 	"github.com/timtadh/goiso"
 )
 
+type CollectAction func(lg *labelGraph)
+type Collector func(<-chan *labelGraph, chan<- bool)
+
 type Collectors interface {
 	close()
 	delete()
@@ -22,11 +25,48 @@ type Collectors interface {
 
 func (m *RandomWalkMiner) makeCollectors(N int) Collectors {
 	// return MakeSerCollector(m.StoreMaker, m.collector)
-	return MakeParCollector(N, m.StoreMaker, m.collector)
+	return MakeParHashCollector(N, m.MakeStore, m.MakeUnique, func (tree store.SubGraphs, unique store.UniqueIndex) Collector {
+		return BasicCollector(CheckUnique(unique, TreeAdd(tree)))
+	})
 }
 
 func (m *BreadthMiner) makeCollectors(N int) Collectors {
-	return MakeParCollector(N, m.MakeStore, m.collector)
+	return MakeParHashCollector(N, m.MakeStore, m.MakeUnique, func (tree store.SubGraphs, unique store.UniqueIndex) Collector {
+		return BasicCollector(CheckUnique(unique, CheckCount(tree, m.MaxSupport + 1, TreeAdd(tree))))
+	})
+}
+
+
+func TreeAdd(tree store.SubGraphs) CollectAction {
+	return func(lg *labelGraph) {
+		tree.Add(lg.label, lg.sg)
+	}
+}
+
+func CheckCount(tree store.SubGraphs, limit int, action CollectAction) CollectAction {
+	return func(lg *labelGraph) {
+		if tree.Count(lg.label) <= limit {
+			action(lg)
+		}
+	}
+}
+
+func CheckUnique(unique store.UniqueIndex, action CollectAction) CollectAction {
+	return func(lg *labelGraph) {
+		if !unique.Has(lg.sg) {
+			unique.Add(lg.sg)
+			action(lg)
+		}
+	}
+}
+
+func BasicCollector(action CollectAction) Collector {
+	return func(in <-chan *labelGraph, done chan<- bool) {
+		for lg := range in {
+			action(lg)
+		}
+		done<-true
+	}
 }
 
 type SerialCollector struct {
@@ -35,11 +75,11 @@ type SerialCollector struct {
 	done chan bool
 }
 
-func MakeSerCollector(makeStore func()store.SubGraphs, collector func(store.SubGraphs, <-chan *labelGraph, chan<- bool)) Collectors {
+func MakeSerCollector(makeStore func()store.SubGraphs, makeCollector func(tree store.SubGraphs) Collector) Collectors {
 	done := make(chan bool)
 	tree := makeStore()
 	ch := make(chan *labelGraph, 1)
-	go collector(tree, ch, done)
+	go makeCollector(tree)(ch, done)
 	return &SerialCollector{tree, ch, done}
 }
 
@@ -80,23 +120,34 @@ func (c *SerialCollector) partitionIterator(key []byte) (pit store.Iterator) {
 }
 
 type ParHashCollector struct {
-	trees []store.SubGraphs
+	graphs []store.SubGraphs
+	unique []store.UniqueIndex
 	chs []chan<- *labelGraph
 	done chan bool
 }
 
-func MakeParHashCollector(N int, makeStore func()store.SubGraphs, collector func(store.SubGraphs, <-chan *labelGraph, chan<- bool)) Collectors {
-	trees := make([]store.SubGraphs, 0, N)
+func MakeParHashCollector(
+	N int,
+	makeStore func()store.SubGraphs,
+	makeIndex func()store.UniqueIndex,
+	makeCollector func(graphs store.SubGraphs, unique store.UniqueIndex) Collector,
+) (
+	Collectors,
+){
+	graphs := make([]store.SubGraphs, 0, N)
+	unique := make([]store.UniqueIndex, 0, N)
 	chs := make([]chan<- *labelGraph, 0, N)
 	done := make(chan bool)
 	for i := 0; i < N; i++ {
 		tree := makeStore()
+		idx := makeIndex()
 		ch := make(chan *labelGraph, 1)
-		trees = append(trees, tree)
+		graphs = append(graphs, tree)
+		unique = append(unique, idx)
 		chs = append(chs, ch)
-		go collector(tree, ch, done)
+		go makeCollector(tree, idx)(ch, done)
 	}
-	return &ParHashCollector{trees, chs, done}
+	return &ParHashCollector{graphs, unique, chs, done}
 }
 
 func (c *ParHashCollector) close() {
@@ -109,14 +160,17 @@ func (c *ParHashCollector) close() {
 }
 
 func (c *ParHashCollector) delete() {
-	for _, bpt := range c.trees {
+	for _, bpt := range c.graphs {
 		bpt.Delete()
+	}
+	for _, idx := range c.unique {
+		idx.Delete()
 	}
 }
 
 func (c *ParHashCollector) size() int {
 	sum := 0
-	for _, tree := range c.trees {
+	for _, tree := range c.graphs {
 		sum += tree.Size()
 	}
 	return sum
@@ -125,7 +179,7 @@ func (c *ParHashCollector) size() int {
 func (c *ParHashCollector) partsCh() <-chan store.Iterator {
 	out := make(chan store.Iterator)
 	done := make(chan bool)
-	for _, tree := range c.trees {
+	for _, tree := range c.graphs {
 		go func(tree store.SubGraphs) {
 			for part, next := c.makePartitions(tree)(); next != nil; part, next = next() {
 				out <- part
@@ -134,7 +188,7 @@ func (c *ParHashCollector) partsCh() <-chan store.Iterator {
 		}(tree)
 	}
 	go func() {
-		for _ = range c.trees {
+		for _ = range c.graphs {
 			<-done
 		}
 		close(out)
@@ -164,12 +218,12 @@ func (c *ParHashCollector) makePartitions(sgs store.SubGraphs) (p_it partitionIt
 
 func (c *ParHashCollector) partitionIterator(key []byte) (pit store.Iterator) {
 	idx := hash(key) % len(c.chs)
-	t := c.trees[idx]
+	t := c.graphs[idx]
 	return bufferedIterator(t.Find(key), 10)
 }
 
 func (c *ParHashCollector) keys() (kit store.BytesIterator) {
-	return keysFromTrees(c.trees)
+	return keysFromTrees(c.graphs)
 }
 
 type ParCollector struct {

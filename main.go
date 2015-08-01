@@ -388,10 +388,16 @@ func RandomWalk(argv []string) {
 		Usage(ErrorCodes["opts"])
 	}
 
+	if cache == "" {
+		fmt.Fprintln(os.Stderr, "you must supply a --cache=<dir>")
+		Usage(ErrorCodes["opts"])
+	}
+
 	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "Expected a path to the graph file")
 		Usage(ErrorCodes["opts"])
 	}
+
 	getReader := func() (io.Reader, func()) { return Input(args[0]) }
 
 	if cpuProfile != "" {
@@ -444,10 +450,10 @@ func RandomWalk(argv []string) {
 	max := store.NewFs2BpTree(G, maxPath)
 	defer max.Close()
 
-	fsCount := 0
-	fsMaker := func() store.SubGraphs {
-		name := fmt.Sprintf("fsm_bptree_%d", fsCount)
-		fsCount++
+	sgCount := 0
+	sgMaker := func() store.SubGraphs {
+		name := fmt.Sprintf("subgraphs-%d.b+tree", sgCount)
+		sgCount++
 		path := path.Join(cache, name)
 		s := store.NewFs2BpTree(G, path)
 		// os.Remove(path)
@@ -458,20 +464,23 @@ func RandomWalk(argv []string) {
 		return s
 	}
 
-	memMaker := func() store.SubGraphs {
-		return store.NewMemBpTree(127)
+	idxCount := 0
+	idxMaker := func() store.UniqueIndex {
+		name := fmt.Sprintf("unique-idx-%d.b+tree", idxCount)
+		idxCount++
+		path := path.Join(cache, name)
+		s := store.NewFs2UniqueIndex(G, path)
+		// os.Remove(path)
+		// s, err := store.NewSqlite(G, path)
+		// if err != nil {
+		// 	log.Panic(err)
+		// }
+		return s
 	}
 
 	// memFsMaker := func() store.SubGraphs {
 	// 	return store.AnonFs2BpTree(G)
 	// }
-
-	var maker func() store.SubGraphs
-	if cache != "" {
-		maker = fsMaker
-	} else {
-		maker = memMaker
-	}
 
 	m := mine.RandomWalk(
 		G,
@@ -479,7 +488,8 @@ func RandomWalk(argv []string) {
 		minVertices,
 		sampleSize,
 		memProfFile,
-		maker,
+		sgMaker,
+		idxMaker,
 	)
 	for sg := range m.MaxReport {
 		max.Add(sg.ShortLabel(), sg)
@@ -863,29 +873,47 @@ func Breadth(argv []string) {
 	all := store.NewFs2BpTree(G, allPath)
 	defer all.Close()
 
-	memMaker := func() store.SubGraphs {
+	sgMemMaker := func() store.SubGraphs {
 		return store.NewMemBpTree(127)
 	}
 
-	count := 0
-	fsMaker := func() store.SubGraphs {
-		name := fmt.Sprintf("fsm_bptree_%d", count)
-		count++
-		path := path.Join(cache, name)
-		return store.NewFs2BpTree(G, path)
-	}
-
-	memFsMaker := func() store.SubGraphs {
+	sgMemFsMaker := func() store.SubGraphs {
 		return store.AnonFs2BpTree(G)
 	}
 
-	var maker func() store.SubGraphs
+	sgCount := 0
+	sgFsMaker := func() store.SubGraphs {
+		name := fmt.Sprintf("subgraphs-%d.b+tree", sgCount)
+		sgCount++
+		path := path.Join(cache, name)
+		s := store.NewFs2BpTree(G, path)
+		return s
+	}
+
+	idxMemFsMaker := func() store.UniqueIndex {
+		return store.AnonFs2UniqueIndex(G)
+	}
+
+	idxCount := 0
+	idxFsMaker := func() store.UniqueIndex {
+		name := fmt.Sprintf("unique-idx-%d.b+tree", idxCount)
+		idxCount++
+		path := path.Join(cache, name)
+		s := store.NewFs2UniqueIndex(G, path)
+		return s
+	}
+
+	var sgMaker func() store.SubGraphs
+	var idxMaker func() store.UniqueIndex
 	if memCache {
-		maker = memFsMaker
+		sgMaker = sgMemFsMaker
+		idxMaker = idxMemFsMaker
 	} else if cache != "" {
-		maker = fsMaker
+		sgMaker = sgFsMaker
+		idxMaker = idxFsMaker
 	} else {
-		maker = memMaker
+		sgMaker = sgMemMaker
+		idxMaker = idxMemFsMaker
 	}
 	
 	embeddings := mine.Breadth(
@@ -893,7 +921,8 @@ func Breadth(argv []string) {
 		support, maxSupport, minVert, maxRounds,
 		startPrefix, supportAttr,
 		vertexExtend, leftMost,
-		maker,
+		sgMaker,
+		idxMaker,
 		memProfFile,
 	)
 	for sg := range embeddings {

@@ -55,6 +55,7 @@ type BreadthMiner struct {
 	SupportAttr string
 	Report chan<- *goiso.SubGraph
 	MakeStore func() store.SubGraphs
+	MakeUnique func() store.UniqueIndex
 }
 
 func Breadth(
@@ -65,6 +66,7 @@ func Breadth(
 	supportAttr string,
 	vertexExtend, leftMost bool,
 	makeStore func() store.SubGraphs,
+	makeUnique func() store.UniqueIndex,
 	memProf io.Writer,
 ) (
 	<-chan *goiso.SubGraph,
@@ -90,6 +92,7 @@ func Breadth(
 		LeftMostExtension: leftMost,
 		Report: fsg,
 		MakeStore: makeStore,
+		MakeUnique: makeUnique,
 	}
 	var profMutex sync.Mutex
 	miner := func() {

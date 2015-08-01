@@ -27,7 +27,8 @@ type RandomWalkMiner struct {
 	SampleSize int
 	PLevel int
 	AllReport, MaxReport chan *goiso.SubGraph
-	StoreMaker func() store.SubGraphs
+	MakeStore func() store.SubGraphs
+	MakeUnique func() store.UniqueIndex
 	startingPoints *set.SortedSet
 	allEmbeddings Collectors
 	extended *hashtable.LinearHash
@@ -48,7 +49,8 @@ func RandomWalk(
 	G *goiso.Graph,
 	support, minVertices, sampleSize int,
 	memProf io.Writer,
-	StoreMaker func() store.SubGraphs,
+	makeStore func() store.SubGraphs,
+	makeUnique func() store.UniqueIndex,
 ) (
 	m *RandomWalkMiner,
 ) {
@@ -60,7 +62,8 @@ func RandomWalk(
 		PLevel: runtime.NumCPU(),
 		AllReport: make(chan *goiso.SubGraph),
 		MaxReport: make(chan *goiso.SubGraph),
-		StoreMaker: StoreMaker,
+		MakeStore: makeStore,
+		MakeUnique: makeUnique,
 		extended: hashtable.NewLinearHash(),
 		supportedExtensions: hashtable.NewLinearHash(),
 	}
@@ -431,13 +434,6 @@ func (m *RandomWalkMiner) partition(key []byte) partition {
 		part = append(part, e)
 	}
 	return m.nonOverlapping(part)
-}
-
-func (m *RandomWalkMiner) collector(tree store.SubGraphs, in <-chan *labelGraph, done chan<- bool) {
-	for lg := range in {
-		tree.Add(lg.label, lg.sg)
-	}
-	done<-true
 }
 
 func (m *RandomWalkMiner) nonOverlapping(sgs partition) partition {

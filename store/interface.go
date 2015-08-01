@@ -86,3 +86,14 @@ type SGIterator func() (*goiso.SubGraph, SGIterator)
 type BytesIterator func() ([]byte, BytesIterator)
 type Iterator func() ([]byte, *goiso.SubGraph, Iterator)
 
+
+type UniqueIndexOperable interface {
+	Has(value *goiso.SubGraph) bool
+	Add(value *goiso.SubGraph)
+}
+
+type UniqueIndex interface {
+	UniqueIndexOperable
+	Delete()
+}
+
