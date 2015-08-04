@@ -42,6 +42,7 @@ import (
 
 import (
 	"github.com/timtadh/data-structures/hashtable"
+	"github.com/timtadh/data-structures/list"
 	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/fs2/bptree"
 	"github.com/timtadh/fs2/fmap"
@@ -473,6 +474,20 @@ func RandomWalk(argv []string) {
 		return s
 	}
 
+	setsCount := 0
+	setsMaker := func() store.SetsMap {
+		name := fmt.Sprintf("sets-%d.b+tree", setsCount)
+		setsCount++
+		path := path.Join(cache, name)
+		s := store.NewFs2Sets(path)
+		// os.Remove(path)
+		// s, err := store.NewSqlite(G, path)
+		// if err != nil {
+		// 	log.Panic(err)
+		// }
+		return s
+	}
+
 	// memFsMaker := func() store.SubGraphs {
 	// 	return store.AnonFs2BpTree(G)
 	// }
@@ -485,25 +500,28 @@ func RandomWalk(argv []string) {
 		memProfFile,
 		sgMaker,
 		idxMaker,
+		setsMaker,
 	)
-	keys := hashtable.NewLinearHash()
+	keys := list.NewSorted(10, false)
+	counts := hashtable.NewLinearHash()
 	for label := range m.Report {
 		key := types.ByteSlice(label)
 		count := 0
-		if keys.Has(key) {
-			c, err := keys.Get(key)
+		if counts.Has(key) {
+			c, err := counts.Get(key)
 			if err != nil {
 				log.Panic(err)
 			}
 			count = c.(int)
 		}
-		keys.Put(key, count + 1)
+		counts.Put(key, count + 1)
+		keys.Add(key)
 	}
 	{
 		log.Println("Finished mining! Writing output...")
 		keyCh := make(chan []byte)
 		go func() {
-			for k, next := keys.Keys()(); next != nil; k, next = next() {
+			for k, next := keys.Items()(); next != nil; k, next = next() {
 				keyCh<-[]byte(k.(types.ByteSlice))
 			}
 			close(keyCh)
@@ -513,9 +531,13 @@ func RandomWalk(argv []string) {
 
 	log.Println("Finished writing patterns. Computing probabilities...")
 	count := 0
-	for k, c, next := keys.Iterate()(); next != nil; k, c, next = next() {
+	for k, next := keys.Items()(); next != nil; k, next = next() {
 		patDir := path.Join(outputDir, fmt.Sprintf("%d", count))
 		log.Println("-----------------------------------")
+		c, err := counts.Get(k)
+		if err != nil {
+			log.Fatal(err)
+		}
 		key := []byte(k.(types.ByteSlice))
 		dupCount := c.(int)
 		// if max.Count(key) < support {

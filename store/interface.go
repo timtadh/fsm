@@ -6,6 +6,7 @@ import (
 
 import (
 	"github.com/timtadh/goiso"
+	"github.com/timtadh/data-structures/set"
 )
 
 type ParentedSg struct {
@@ -99,5 +100,11 @@ type UniqueIndexOperable interface {
 type UniqueIndex interface {
 	UniqueIndexOperable
 	Delete()
+}
+
+type SetsMap interface {
+	Has(key []byte) bool
+	Put(key []byte, set *set.SortedSet)
+	Get(key []byte) (set *set.SortedSet)
 }
 

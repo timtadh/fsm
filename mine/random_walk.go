@@ -11,7 +11,6 @@ import (
 )
 
 import (
-	"github.com/timtadh/data-structures/hashtable"
 	"github.com/timtadh/data-structures/types"
 	"github.com/timtadh/data-structures/set"
 	"github.com/timtadh/goiso"
@@ -29,10 +28,13 @@ type RandomWalkMiner struct {
 	Report chan []byte
 	MakeStore func() store.SubGraphs
 	MakeUnique func() store.UniqueIndex
-	startingPoints *set.SortedSet
+	MakeSetsMap func() store.SetsMap
+	startingPoints *set.SortedSet // source of memory
 	AllEmbeddings Collectors
-	extended *hashtable.LinearHash
-	supportedExtensions *hashtable.LinearHash
+	extended store.SetsMap // source of memory
+	                               // types.ByteSlice, set.SortedSet
+	supportedExtensions store.SetsMap // source of memory
+	                               // types.ByteSlice, set.SortedSet
 }
 
 type isoGroupWithSet struct {
@@ -51,6 +53,7 @@ func RandomWalk(
 	memProf io.Writer,
 	makeStore func() store.SubGraphs,
 	makeUnique func() store.UniqueIndex,
+	makeSetsMap func() store.SetsMap,
 ) (
 	m *RandomWalkMiner,
 ) {
@@ -63,8 +66,9 @@ func RandomWalk(
 		Report: make(chan []byte),
 		MakeStore: makeStore,
 		MakeUnique: makeUnique,
-		extended: hashtable.NewLinearHash(),
-		supportedExtensions: hashtable.NewLinearHash(),
+		MakeSetsMap: makeSetsMap,
+		extended: makeSetsMap(),
+		supportedExtensions: makeSetsMap(),
 	}
 	go m.sample(sampleSize)
 	return m
@@ -346,11 +350,8 @@ func (m *RandomWalkMiner) extensions(sgs []*goiso.SubGraph) *set.SortedSet {
 	}
 	label := types.ByteSlice(sgs[0].ShortLabel())
 	if m.extended.Has(label) {
-		keys, err := m.extended.Get(label)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return keys.(*set.SortedSet)
+		keys := m.extended.Get(label)
+		return keys
 	}
 	keys := set.NewSortedSet(10)
 	m.extend(sgs, func(sg *goiso.SubGraph) {
@@ -364,11 +365,8 @@ func (m *RandomWalkMiner) extensions(sgs []*goiso.SubGraph) *set.SortedSet {
 func (m *RandomWalkMiner) supportedKeys(from []byte, keys *set.SortedSet) *set.SortedSet {
 	key := types.ByteSlice(from)
 	if m.supportedExtensions.Has(key) {
-		supKeys, err := m.supportedExtensions.Get(key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		return supKeys.(*set.SortedSet)
+		supKeys := m.supportedExtensions.Get(key)
+		return supKeys
 	}
 	keysCh := make(chan []byte)
 	partKeys := make(chan []byte)
