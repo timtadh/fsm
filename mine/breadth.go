@@ -162,16 +162,6 @@ func (m *BreadthMiner) Initial(send func(*goiso.SubGraph)) {
 	log.Printf("Done creating initial set %d", graphs)
 }
 
-func vertexSet(sg *goiso.SubGraph) *set.SortedSet {
-	s := getSet()
-	for _, v := range sg.V {
-		if err := s.Add(types.Int(v.Id)); err != nil {
-			panic(err)
-		}
-	}
-	return s
-}
-
 
 func (m *BreadthMiner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 	vids := getSet()
@@ -183,7 +173,7 @@ func (m *BreadthMiner) nonOverlapping(sgs store.Iterator) []*goiso.SubGraph {
 			// skip super big groups as nonOverlapping takes for ever
 			return nil
 		}
-		s := vertexSet(sg)
+		s := VertexSet(sg)
 		if !vids.Overlap(s) {
 			non_overlapping = append(non_overlapping, sg)
 			for v, next := s.Items()(); next != nil; v, next = next() {

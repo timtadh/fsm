@@ -283,7 +283,7 @@ func (m *DepthMiner) nonOverlapping(sgs partition) partition {
 			// skip super big groups as nonOverlapping takes for ever
 			return nil
 		}
-		s := vertexSet(sg)
+		s := VertexSet(sg)
 		if !vids.Overlap(s) {
 			non_overlapping = append(non_overlapping, sg)
 			for v, next := s.Items()(); next != nil; v, next = next() {

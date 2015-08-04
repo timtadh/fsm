@@ -7,7 +7,6 @@ import (
 	"log"
 	"runtime"
 	"runtime/debug"
-	"sort"
 )
 
 import (
@@ -37,15 +36,6 @@ type RandomWalkMiner struct {
 	                               // types.ByteSlice, set.SortedSet
 }
 
-type isoGroupWithSet struct {
-	sg *goiso.SubGraph
-	vertices *set.SortedSet
-}
-
-type sortableIsoGroup []*isoGroupWithSet
-func (s sortableIsoGroup) Len() int { return len(s) }
-func (s sortableIsoGroup) Less(i, j int) bool { return s[i].vertices.Less(s[j].vertices) }
-func (s sortableIsoGroup) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 func RandomWalk(
 	G *goiso.Graph,
@@ -214,7 +204,7 @@ func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) []int {
 		} else if count == 0 {
 			// this case can happen occasionally, we need to ensure the
 			// absorbing node will still be reachable
-			// log.Println("err", keys.Size(), maxSup, part[0].Label())
+			log.Println("err", keys.Size(), part[0].Label())
 			P[i] = 1
 		} else {
 			P[i] = count
@@ -427,32 +417,6 @@ func (m *RandomWalkMiner) partition(key []byte) partition {
 	for _, e, next := m.AllEmbeddings.Find(key)(); next != nil; _, e, next = next() {
 		part = append(part, e)
 	}
-	return m.nonOverlapping(part)
-}
-
-func (m *RandomWalkMiner) nonOverlapping(sgs partition) partition {
-	group := make(sortableIsoGroup, 0, len(sgs))
-	for _, sg := range sgs {
-		group = append(group, &isoGroupWithSet{
-			sg: sg,
-			vertices: vertexSet(sg),
-		})
-	}
-	sort.Sort(group)
-	vids := set.NewSortedSet(10)
-	non_overlapping := make(partition, 0, len(sgs))
-	for _, sg := range group {
-		s := sg.vertices
-		if !vids.Overlap(s) {
-			non_overlapping = append(non_overlapping, sg.sg)
-			for v, next := s.Items()(); next != nil; v, next = next() {
-				item := v.(types.Int)
-				if err := vids.Add(item); err != nil {
-					panic(err)
-				}
-			}
-		}
-	}
-	return non_overlapping
+	return MinimumImageSupport(part)
 }
 
