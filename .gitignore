@@ -5,6 +5,7 @@ bin/*
 env
 !bin/selection_probability
 !bin/probabilities
+!bin/retry-probabilities
 *.g
 *.png
 data
