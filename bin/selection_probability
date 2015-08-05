@@ -64,7 +64,7 @@ def load_matrix(shape, entries, retry=False):
     if not retry:
         data = [float(e['Value']) for e in entries]
     else:
-        data = [(float(e['Value']) if e['Inverse'] != 1 else .5) for e in entries]
+        data = [(float(e['Value']) if float(e['Value']) < .5 else .5) for e in entries]
     rows = [float(e['Row']) for e in entries]
     cols = [float(e['Col']) for e in entries]
     return sparse.coo_matrix((data, (rows, cols)), shape).tocsc()
