@@ -67,7 +67,9 @@ def load_matrix(shape, entries, retry=False):
         data = [(float(e['Value']) if float(e['Value']) < .5 else .5) for e in entries]
     rows = [float(e['Row']) for e in entries]
     cols = [float(e['Col']) for e in entries]
-    return sparse.coo_matrix((data, (rows, cols)), shape).tocsc()
+    M = sparse.coo_matrix((data, (rows, cols)), shape).tocsc()
+    assert len(data) == M.nnz
+    return M
 
 def probability(Q, R, u):
     print >>sys.stderr, Q.shape[0],
@@ -89,7 +91,7 @@ def inverse(A):
 
     #lu = linalg.spilu(A)
     lu = umfpack.splu(A)
-    return sparse.csc_matrix(lu.solve(I.todense()))
+    return sparse.csc_matrix(lu.solve(I))
 
     # return linalg.spsolve(A, I)
 
