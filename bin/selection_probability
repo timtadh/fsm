@@ -9,6 +9,7 @@ import time
 import numpy as np
 from scipy import sparse
 from scipy.sparse import linalg
+from scikits import umfpack
 
 
 USAGE = 'selection_probablities -m /path/to/matrices.json'
@@ -87,11 +88,10 @@ def inverse(A):
     I = sparse.eye(A.shape[0], format=A.format)
 
     #lu = linalg.spilu(A)
-    #lu = umfpack.splu(A)
-    #return sparse.csc_matrix(lu.solve(I.todense()))
+    lu = umfpack.splu(A)
+    return sparse.csc_matrix(lu.solve(I.todense()))
 
-    cProfile.runctx('linalg.spsolve(A, I, use_umfpack=True)', globals=globals(), locals=dict(A=A, I=I))
-    return linalg.spsolve(A, I, use_umfpack=True)
+    # return linalg.spsolve(A, I)
 
 
 def main(argv):
