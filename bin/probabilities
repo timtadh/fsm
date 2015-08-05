@@ -14,7 +14,15 @@ if ! which selection_probability &> /dev/null; then
 	exit 1
 fi
 
-for path in $(find $1 -name 'matrices.json'); do
+PATHS=$(
+	(
+	for path in $(find $DIR -name "matrices.json"); do
+		echo $(basename $(dirname $path)) $path
+	done
+	) | sort -n -t " " -k1,1 | cut -d " " -f 2
+)
+
+for path in $PATHS; do
 	selection_probability -m $path -o $(dirname $path)/pattern.pr
 done
 
