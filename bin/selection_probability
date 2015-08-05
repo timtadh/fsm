@@ -9,7 +9,6 @@ import time
 import numpy as np
 from scipy import sparse
 from scipy.sparse import linalg
-from scikits import umfpack
 
 
 USAGE = 'selection_probablities -m /path/to/matrices.json'
