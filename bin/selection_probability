@@ -56,7 +56,7 @@ def load(path, retry):
     with open(path) as f:
         j = json.load(f)
     Q = load_matrix((j['Q']['Rows'], j['Q']['Cols']), j['Q']['Entries'], retry)
-    R = load_matrix((j['R']['Rows'], j['R']['Cols']), j['R']['Entries'])
+    R = load_matrix((j['R']['Rows'], j['R']['Cols']), j['R']['Entries'], retry)
     u = load_matrix((j['u']['Rows'], j['u']['Cols']), j['u']['Entries'])
     return Q, R, u
 
