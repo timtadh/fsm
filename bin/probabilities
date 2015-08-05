@@ -23,6 +23,7 @@ PATHS=$(
 )
 
 for path in $PATHS; do
+	echo "selection_probability -m $path -o $(dirname $path)/pattern.pr"
 	selection_probability -m $path -o $(dirname $path)/pattern.pr
 done
 
