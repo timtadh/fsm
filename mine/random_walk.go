@@ -34,6 +34,7 @@ type RandomWalkMiner struct {
 	                               // types.ByteSlice, set.SortedSet
 	supportedExtensions store.SetsMap // source of memory
 	                               // types.ByteSlice, set.SortedSet
+	Tries int
 }
 
 
@@ -60,7 +61,9 @@ func RandomWalk(
 		extended: makeSetsMap(),
 		supportedExtensions: makeSetsMap(),
 	}
-	go m.sample(sampleSize)
+	go func() {
+		m.Tries = m.sample(sampleSize)
+	}()
 	return m
 }
 
@@ -214,12 +217,13 @@ func (m *RandomWalkMiner) probabilities(lattice *goiso.Lattice) []int {
 	return P
 }
 
-func (m *RandomWalkMiner) sample(size int) {
+func (m *RandomWalkMiner) sample(size int) (tries int) {
 	if m.AllEmbeddings == nil {
 		m.AllEmbeddings, m.startingPoints = m.initial()
 	}
 	for i := 0; i < size; i++ {
 		retry: for {
+			tries++
 			part := m.walk()
 			if len(part) < m.Support {
 				log.Println("found mfsg but it did not have enough support")
@@ -241,6 +245,7 @@ func (m *RandomWalkMiner) sample(size int) {
 		}
 	}
 	close(m.Report)
+	return tries
 }
 
 func (m *RandomWalkMiner) walk() partition {

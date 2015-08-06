@@ -517,6 +517,14 @@ func RandomWalk(argv []string) {
 		counts.Put(key, count + 1)
 		keys.Add(key)
 	}
+	log.Println("Tries", m.Tries)
+	triesPath := path.Join(outputDir, "tries")
+	if f, e := os.Create(triesPath); e != nil {
+		log.Fatal(err)
+	} else {
+		fmt.Fprintln(f, m.Tries)
+		f.Close()
+	}
 	{
 		log.Println("Finished mining! Writing output...")
 		keyCh := make(chan []byte)
