@@ -1,0 +1,216 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import getopt
+import sh
+import itertools
+import math
+
+from scipy import stats
+
+
+USAGE = 'conditionals -s <int> -b <path>'
+EXTENDED = '''
+compute the conditional probability of the sample
+
+Options
+    -h, --help                      print this message
+    -b, --base=<path>               base path to look for probability.pr's
+    -s, --sample_size=<int>         size of the sample collected (including dups)
+    -n, --output-name=<str>         default: conditional.pr
+'''
+
+
+def usage(code=None):
+    '''Prints the usage and exits with an error code specified by code. If
+    code is not given it exits with error_codes['usage']'''
+    print USAGE
+    if code is None:
+        print EXTENDED
+    else:
+        code = 0
+    sys.exit(code)
+
+def log(*msgs):
+    '''Log a message to the user'''
+    for msg in msgs:
+        print >>sys.stderr, str(msg),
+    print >>sys.stderr
+    sys.stderr.flush()
+
+def assert_file_exists(path):
+    '''checks if the file exists. If it doesn't causes the program to exit.
+    @param path : path to file
+    @returns : the abs path to the file (an echo) [only on success]
+    '''
+    path = os.path.abspath(os.path.expanduser(path))
+    if not os.path.exists(path):
+        log('No file found. "%(path)s"' % locals())
+        usage(2)
+    return path
+
+def assert_dir_exists(path):
+    '''checks if the dir exists. If it doesn't causes the program to exit.
+    @param path : path to dir
+    @returns : the abs path to the file (an echo) [only on success]
+    '''
+    path = os.path.abspath(os.path.expanduser(path))
+    if not os.path.exists(path):
+        log('No file found. "%(path)s"' % locals())
+        usage(2)
+    if not os.path.isdir(path):
+        log('Is not a directory. "%(path)s"' % locals())
+        usage(2)
+    return path
+
+def assert_int(s):
+    try:
+        return int(s)
+    except Exception, e:
+        log("error converting '%s' to int" % s)
+        log(e)
+        usage(2)
+
+def assert_float(s):
+    try:
+        return float(s)
+    except Exception, e:
+        log("error converting '%s' to float" % s)
+        log(e)
+        usage(2)
+
+def read_float_or_die(path):
+    '''checks if the file exists. If it doesn't causes the program to exit.
+    @param path : path to file
+    @returns : the abs path to the file (an echo) [only on success]
+    '''
+    path = assert_file_exists(path)
+    with open(path) as f:
+        return assert_float(f.read().strip())
+
+def pi(pr, sample_size):
+    x = ((1.0 - pr)**sample_size)
+    return 1.0 - x
+
+def joint_pi(pr_i, pr_j, pi_i, pi_j, sample_size):
+    return pi_i + pi_j - (1.0 - (1.0 - pr_i - pr_j)**sample_size)
+
+def joint_pis(prs, pis, sample_size):
+    return [
+      [
+          joint_pi(prs[i], prs[j], pis[i], pis[j], sample_size)
+          for j in xrange(len(prs))
+      ]
+      for i in xrange(len(prs))
+    ]
+
+def pis(prs, sample_size):
+    return [pi(pr, sample_size) for pr in prs]
+
+def tau_hat(pis):
+    return sum(1.0/(pi) for pi in pis)
+
+def var_tau_hat(pis, joint_pis):
+    A = sum((1.0/(pi**2) - 1.0/pi) for pi in pis)
+    B = sum(
+        sum(
+            (1.0/(pis[i]*pis[j]) - 1.0/joint_pis[i][j])
+            for j in xrange(len(pis))
+            if i != j
+        )
+        for i in xrange(len(pis))
+    )
+    return A + 2*B
+
+def std_tau_hat(var_tau_hat):
+    return math.sqrt(var_tau_hat)
+
+def tau_interval(level, std_tau_hat):
+    return stats.norm.ppf(level) * std_tau_hat
+
+def tau_hat_lower_bound(tau_hat, std_tau_hat):
+    levels = [.95, .90, .85, .80, .75, .70]
+    for level in levels:
+        interval = tau_interval(level, std_tau_hat)
+        if tau_hat - interval > 0:
+            break
+    print 'confidence level', level
+    return tau_hat - interval
+
+def mean_pr_hat(prs, sample_size):
+    return (1.0/sample_size)*sum(pr for pr in prs)
+
+def pr_f_hat(prs, pis, joint_pis, sample_size):
+    tau = tau_hat(pis)
+    var_tau = var_tau_hat(pis, joint_pis)
+    std_tau = std_tau_hat(var_tau)
+    tau_lower = tau_hat_lower_bound(tau, std_tau)
+    print 'tau_hat', tau
+    print 'var(tau_hat)', var_tau
+    print 'std(tau_hat)', std_tau
+    print 'lower_bound(tau_hat)', tau_lower
+    mean_pr = mean_pr_hat(prs, sample_size)
+    print 'mean_pr_hat', mean_pr
+    return tau_lower*mean_pr
+
+def main(argv):
+    try:
+        opts, args = getopt.getopt(argv, "hs:b:n:",
+            ["help", "sample-size=", "base=", "output-name="])
+    except getopt.GetoptError, err:
+        log(err)
+        usage(1)
+
+    base = None
+    sample_size = None
+    output_name = 'conditional.pr'
+    for opt, arg in opts:
+        if opt in ('-h', '--help',):
+            usage(0)
+        elif opt in ('-s', '--sample-size',):
+            sample_size = assert_int(arg)
+        elif opt in ('-b', '--base',):
+            base = assert_dir_exists(arg)
+        elif opt in ('-n', '--output-name',):
+            output_name = arg
+        else:
+            log("unexpected option", opt, arg)
+            usage(1)
+
+    if base is None:
+        log("must supply base path (-b)")
+        usage(1)
+
+    if sample_size is None:
+        log("must supply a sample size (-s)")
+        usage(1)
+
+    find = sh.Command("find")
+    paths = [
+        assert_file_exists(path.strip())
+        for path in find(base, '-name', 'pattern.pr')
+        if path.strip()
+    ]
+    pr_s = [read_float_or_die(path) for path in paths]
+    pi_s = pis(pr_s, sample_size)
+    joint = joint_pis(pr_s, pi_s, sample_size)
+    print 'Prs', pr_s
+    print 'PIs', pi_s
+    pr_f = pr_f_hat(pr_s, pi_s, joint, sample_size)
+    print 'pr_f', pr_f
+
+    if pr_f > 1.0:
+        print 'ERROR', 'pr_f > 1'
+        sys.exit(3)
+
+    for path, pr in itertools.izip(paths, pr_s):
+        dirname = os.path.dirname(path)
+        condpath = os.path.join(dirname, output_name)
+        with open(condpath, 'w') as f:
+            print >>f, pr/pr_f
+
+    print 'done computing conditional probabilities'
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
