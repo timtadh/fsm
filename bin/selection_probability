@@ -84,21 +84,18 @@ def probability(Q, R, u):
     return P[0,0]
 
 def inverse(A):
-    import cProfile
-    'Only works if A is upper triagular'
     # return linalg.inv(A)
     I = sparse.eye(A.shape[0], format=A.format)
 
     #lu = linalg.spilu(A)
     lu = umfpack.splu(A)
     print >>sys.stderr, "LU",
-    #return sparse.csc_matrix(lu.solve(I))
     return lusolve(lu, I)
 
     # return linalg.spsolve(A, I)
 
 def lusolve(lu, B):
-    if B.shape[0] < 40000:
+    if B.shape[0] < 30000:
         X = sparse.csc_matrix(lu.solve(B))
     else:
         cols = list()
