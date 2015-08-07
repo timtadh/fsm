@@ -525,6 +525,20 @@ func RandomWalk(argv []string) {
 		fmt.Fprintln(f, m.Tries)
 		f.Close()
 	}
+	if minVertices > 0 {
+		log.Println("Computing subpopulation selection pr")
+		prs := m.EstSubPopSelectionPr()
+		log.Println("samples of Pr[S]", prs)
+		spPath := path.Join(outputDir, "pr_subpop")
+		if f, e := os.Create(spPath); e != nil {
+			log.Fatal(err)
+		} else {
+			for _, pr := range prs {
+				fmt.Fprintln(f, pr)
+			}
+			f.Close()
+		}
+	}
 	{
 		log.Println("Finished mining! Writing output...")
 		keyCh := make(chan []byte)

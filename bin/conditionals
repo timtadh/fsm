@@ -7,6 +7,7 @@ import sh
 import itertools
 import math
 
+import numpy as np
 from scipy import stats
 
 
@@ -133,12 +134,19 @@ def main(argv):
             log("unexpected option", opt, arg)
             usage(1)
 
+
     if base is None:
         log("must supply base path (-b)")
         usage(1)
 
-    if sample_size is None:
-        log("must supply a sample size (-s)")
+    pr_subpop = None
+    pr_subpop_path = os.path.join(base, 'pr_subpop')
+    if os.path.exists(pr_subpop_path):
+        with open(pr_subpop_path) as f:
+            pr_subpop = [float(line.strip()) for line in f]
+
+    if sample_size is None and pr_subpop is None:
+        log("must supply a sample size (-s) since there is no pr_subpop file.")
         usage(1)
 
     find = sh.Command("find")
@@ -147,15 +155,24 @@ def main(argv):
         for path in find(base, '-name', 'pattern.pr')
         if path.strip()
     ]
-    N = float(sum(
-        read_int_or_die(path.strip())
-        for path in find(base, '-name', 'duplicates')
-        if path.strip()
-    ))
     pr_s = [read_float_or_die(path) for path in paths]
-    pr_f = N/sample_size
 
-    print 'pr_f', pr_f
+    if pr_subpop is None:
+        n = float(sum(
+            read_int_or_die(path.strip())
+            for path in find(base, '-name', 'duplicates')
+            if path.strip()
+        ))
+        pr_f = n/sample_size
+        interval = None
+        print 'pr_f', pr_f
+    else:
+        pr_f = np.mean(pr_subpop)
+        interval = stats.norm.ppf(.95)*np.std(pr_subpop)
+        print 'pr_f', pr_f
+        print 'var(pr_f)', np.var(pr_subpop)
+        print 'interval(pr_f)', pr_f + interval, pr_f - interval
+
 
     if pr_f > 1.0:
         print 'ERROR', 'pr_f > 1'
@@ -172,6 +189,11 @@ def main(argv):
         print dirname, pr, pr/pr_f
         with open(condpath, 'w') as f:
             print >>f, pr/pr_f
+        if interval is not None:
+            ipath = os.path.join(dirname, 'conditional.interval.pr')
+            with open(ipath, 'w') as f:
+                print >>f, (pr/(pr_f + interval))
+                print >>f, (pr/(pr_f - interval))
 
     print 'done computing conditional probabilities'
 

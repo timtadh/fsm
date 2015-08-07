@@ -174,6 +174,27 @@ func (m *RandomWalkMiner) SelectionProbability(sg *goiso.SubGraph) (float64, err
 	return x, nil
 }
 
+func (m *RandomWalkMiner) EstSubPopSelectionPr() []float64 {
+	if m.AllEmbeddings == nil {
+		m.AllEmbeddings, m.startingPoints = m.initial()
+	}
+	SAMPLES := 40
+	SIZE := 100
+	prs := make([]float64, 0, SAMPLES)
+	for i := 0; i < SAMPLES; i++ {
+		inpop := 0
+		for j := 0; j < SIZE; j++ {
+			part := m.walk()
+			if len(part[0].V) >= m.MinVertices {
+				inpop++
+			}
+			log.Println("found mfsg", (i * SIZE) + j, part[0].Label())
+		}
+		prs = append(prs, float64(inpop)/float64(SIZE))
+	}
+	return prs
+}
+
 func sumpow(A *matrix.DenseMatrix, exponent int) *matrix.DenseMatrix {
 	var An matrix.Matrix = matrix.Eye(A.Rows())
 	var S matrix.Matrix = matrix.Zeros(A.Rows(), A.Cols())
