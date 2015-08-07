@@ -186,7 +186,6 @@ def main(argv):
     for path, pr in itertools.izip(paths, pr_s):
         dirname = os.path.dirname(path)
         condpath = os.path.join(dirname, output_name)
-        print dirname, pr, pr/pr_f
         with open(condpath, 'w') as f:
             print >>f, pr/pr_f
         if interval is not None:
@@ -194,6 +193,9 @@ def main(argv):
             with open(ipath, 'w') as f:
                 print >>f, (pr/(pr_f + interval))
                 print >>f, (pr/(pr_f - interval))
+            print dirname, pr, '|', (pr/(pr_f - interval)), pr/pr_f, (pr/(pr_f + interval))
+        else:
+            print dirname, pr, pr/pr_f
 
     print 'done computing conditional probabilities'
 
