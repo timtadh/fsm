@@ -636,6 +636,7 @@ func Depth(argv []string) {
 			"support=",
 			"max-support=",
 			"min-vertices=",
+			"max-vertices=",
 			"queue-size=",
 			"score=",
 			"mem-profile=",
@@ -652,6 +653,7 @@ func Depth(argv []string) {
 	support := -1
 	maxSupport := -1
 	minVertices := 5
+	maxVertices := -1
 	queueSize := 100
 	memProfile := ""
 	cpuProfile := ""
@@ -670,6 +672,8 @@ func Depth(argv []string) {
 			maxSupport = ParseInt(oa.Arg())
 		case "-m", "--min-vertices":
 			minVertices = ParseInt(oa.Arg())
+		case "--max-vertices":
+			maxVertices = ParseInt(oa.Arg())
 		case "--queue-size":
 			queueSize = ParseInt(oa.Arg())
 		case "--maximal":
@@ -756,7 +760,7 @@ func Depth(argv []string) {
 	embeddings := mine.Depth(
 		G,
 		score,
-		support, maxSupport, minVertices, queueSize,
+		support, maxSupport, minVertices, maxVertices, queueSize,
 		memFsMaker,
 		memProfFile,
 	)

@@ -34,6 +34,7 @@ type DepthMiner struct {
 	Support int
 	MaxSupport int
 	MinVertices int
+	MaxVertices int
 	MaxQueueSize int
 	Report chan *goiso.SubGraph
 	MakeStore func() store.SubGraphs
@@ -43,7 +44,7 @@ type DepthMiner struct {
 func Depth(
 	G *goiso.Graph,
 	scoreName string,
-	support, maxSupport, minVertices, maxQueueSize int,
+	support, maxSupport, minVertices, maxVertices, maxQueueSize int,
 	makeStore func() store.SubGraphs,
 	memProf io.Writer,
 ) (
@@ -55,6 +56,7 @@ func Depth(
 		Support: support,
 		MaxSupport: maxSupport,
 		MinVertices: minVertices,
+		MaxVertices: maxVertices,
 		MaxQueueSize: maxQueueSize,
 		Report: make(chan *goiso.SubGraph), MakeStore: makeStore,
 		processed: NewSeen(),
@@ -175,6 +177,9 @@ func (m *DepthMiner) process(lp *isoGroup, send func(*isoGroup)) {
 		}
 	}
 	for extended := range m.partition(m.extensions(lp.part)) {
+		if len(extended) > 0 && m.MaxVertices > 0 && len(extended[0].V) > m.MaxVertices {
+			continue
+		}
 		extended = m.nonOverlapping(extended)
 		if len(extended) <= 0 {
 			continue

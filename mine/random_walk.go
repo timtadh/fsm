@@ -178,8 +178,8 @@ func (m *RandomWalkMiner) EstSubPopSelectionPr() []float64 {
 	if m.AllEmbeddings == nil {
 		m.AllEmbeddings, m.startingPoints = m.initial()
 	}
-	SAMPLES := 100
-	SIZE := 750
+	SAMPLES := 40
+	SIZE := 250
 	prs := make([]float64, 0, SAMPLES)
 	for i := 0; i < SAMPLES; i++ {
 		inpop := 0
