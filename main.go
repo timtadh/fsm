@@ -793,6 +793,7 @@ func Depth(argv []string) {
 		}
 	}
 	log.Println("Finished mining! Writing output...")
+	writeAllPatternsNoDir(all, nodeAttrs, outputDir)
 	log.Println("Done!")
 }
 
