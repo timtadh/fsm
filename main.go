@@ -793,7 +793,6 @@ func Depth(argv []string) {
 		}
 	}
 	log.Println("Finished mining! Writing output...")
-	writeAllPatterns(all, nodeAttrs, outputDir)
 	log.Println("Done!")
 }
 
@@ -1036,6 +1035,24 @@ func writeAllPatterns(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir s
 	}
 }
 
+func writeAllPatternsNoDir(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir string) {
+	alle, err := os.Create(path.Join(outputDir, "all-embeddings.dot"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer alle.Close()
+	allp, err := os.Create(path.Join(outputDir, "all-patterns.dot"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer allp.Close()
+	count := 0
+	for key, next := all.Keys()(); next != nil; key, next = next() {
+		writePatternNoDir(count, outputDir, alle, allp, nodeAttrs, all, key)
+		count++
+	}
+}
+
 func writeMaximalSubGraphs(all store.SubGraphs, nodeAttrs *bptree.BpTree, outputDir string) {
 	keys, err := mine.MaximalSubGraphs(all, nodeAttrs, outputDir) 
 	if err != nil {
@@ -1160,6 +1177,47 @@ func writePattern(count int, outDir string, embeddings, patterns io.Writer, node
 	} else {
 		fmt.Fprintln(c, i)
 		c.Close()
+	}
+	fmt.Fprintln(patterns)
+	fmt.Fprintln(patterns)
+	fmt.Fprintln(embeddings)
+	fmt.Fprintln(embeddings)
+}
+
+func writePatternNoDir(count int, outDir string, embeddings, patterns io.Writer, nodeAttrs *bptree.BpTree, all store.Findable, key []byte) {
+	i := 0
+	for _, sg, next := all.Find(key)(); next != nil; _, sg, next = next() {
+		if i == 0 {
+			fmt.Fprintln(patterns, "//", sg.Label())
+			fmt.Fprintln(patterns)
+			fmt.Fprintln(patterns, sg.String())
+			fmt.Fprintln(embeddings, "//", sg.Label())
+			fmt.Fprintln(embeddings)
+		}
+		if nodeAttrs != nil {
+			attrs := make(map[int]map[string]interface{})
+			for _, v := range sg.V {
+				bid := make([]byte, 4)
+				binary.BigEndian.PutUint32(bid, uint32(v.Id))
+				err := nodeAttrs.DoFind(
+					bid,
+					func(key, value []byte) error {
+						a, err := graph.ParseJson(value)
+						if err != nil {
+							log.Fatal(err)
+						}
+						attrs[v.Id] = a
+						return nil
+					})
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+			fmt.Fprintln(embeddings, sg.StringWithAttrs(attrs))
+		} else {
+			fmt.Fprintln(embeddings, sg.String())
+		}
+		i++
 	}
 	fmt.Fprintln(patterns)
 	fmt.Fprintln(patterns)
