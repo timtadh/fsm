@@ -53,6 +53,7 @@ import (
 	"github.com/timtadh/fsm/graph"
 	"github.com/timtadh/fsm/mine"
 	"github.com/timtadh/fsm/store"
+	"github.com/timtadh/fsm/subgraph"
 )
 
 func init() {
@@ -770,6 +771,26 @@ func Depth(argv []string) {
 	if maximal {
 		log.Print("Finished mining, about to compute maximal frequent subgraphs.")
 		writeMaximalSubGraphs(all, nodeAttrs, outputDir)
+		log.Print("Finished mining, about to compute kernel.")
+		labels, err := mine.MaximalSubGraphs(all, nodeAttrs, outputDir) 
+		if err != nil {
+			log.Fatal(err)
+		}
+		sgs := make([]*subgraph.Subgraph, 0, 10)
+		for label := range labels {
+			sg := subgraph.FromShortLabel(label)
+			sgs = append(sgs, sg)
+		}
+		kerPath := AssertFile(path.Join(outputDir, "kernel"))
+		kf, err := os.Create(kerPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		for i, a := range sgs {
+			for j, b := range sgs {
+				kf.Write([]byte(fmt.Sprintf("%d, %d, %v\n", i, j, a.Metric(b))))
+			}
+		}
 	}
 	log.Println("Finished mining! Writing output...")
 	writeAllPatterns(all, nodeAttrs, outputDir)
@@ -988,7 +1009,6 @@ func Breadth(argv []string) {
 	for sg := range embeddings {
 		all.Add(sg.ShortLabel(), sg)
 	}
-
 	if maximal {
 		log.Print("Finished mining, about to compute maximal frequent subgraphs.")
 		writeMaximalSubGraphs(all, nodeAttrs, outputDir)
